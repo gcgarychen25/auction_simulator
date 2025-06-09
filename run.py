@@ -22,6 +22,7 @@ import yaml
 import json
 import csv
 import time
+import numpy as np
 from collections import deque
 from typing import Dict, List, Any, Tuple
 import logging
@@ -403,27 +404,90 @@ Answer the questions directly and concisely:"""
         return 0  # Announce/Continue
     
     def _calculate_episode_results(self, episode_log: List[Dict], final_rewards: Dict, info: Dict) -> Dict[str, Any]:
-        """Calculate and return episode statistics."""
+        """Calculate and return episode statistics with enhanced economic metrics."""
         winner = info.get('winner')
-        final_price = info.get('final_price', 0)
+        final_price = info.get('final_price')
+        reserve_price = self.config['seller']['reserve_price']
+        start_price = self.config['auction']['start_price']
+        
+        # Basic auction outcome
+        auction_successful = winner is not None and final_price is not None
+        reserve_met = final_price >= reserve_price if final_price else False
+        
+        # Enhanced failure categorization
+        failure_reason = None
+        if not auction_successful:
+            if final_price is None:
+                failure_reason = "no_bids"
+            elif final_price < reserve_price:
+                failure_reason = "below_reserve"
+        
+        # Economic surplus calculation (only if auction succeeded)
+        if auction_successful:
+            seller_surplus = final_rewards['seller']
+            winner_surplus = final_rewards['buyers'][winner]
+            total_surplus = seller_surplus + winner_surplus
+            
+            # Winner value metrics
+            winner_max_wtp = self.config['buyers'][winner]['max_wtp']
+            winner_surplus_ratio = winner_surplus / winner_max_wtp if winner_max_wtp > 0 else 0
+            
+            # Market efficiency metrics
+            theoretical_max_surplus = winner_max_wtp - reserve_price
+            surplus_efficiency = total_surplus / theoretical_max_surplus if theoretical_max_surplus > 0 else 0
+            
+        else:
+            # Failed auction - no surplus generated
+            seller_surplus = 0
+            winner_surplus = 0
+            total_surplus = 0
+            winner_max_wtp = 0
+            winner_surplus_ratio = 0
+            surplus_efficiency = 0
+        
+        # Price dynamics
+        if final_price:
+            price_premium_over_reserve = (final_price - reserve_price) / reserve_price
+            price_premium_over_start = (final_price - start_price) / start_price
+        else:
+            price_premium_over_reserve = None
+            price_premium_over_start = None
         
         results = {
+            # Basic metrics
             'episode_length': len(episode_log),
             'final_price': final_price,
             'winner': winner,
             'winner_persona': self.config['buyers'][winner]['id'] if winner is not None else None,
-            'seller_reward': final_rewards['seller'],
+            
+            # Auction outcome
+            'auction_successful': auction_successful,
+            'reserve_met': reserve_met,
+            'failure_reason': failure_reason,
+            
+            # Economic metrics
+            'seller_reward': seller_surplus,
+            'winner_surplus': winner_surplus,
+            'total_surplus': total_surplus,
+            'winner_max_wtp': winner_max_wtp,
+            'winner_surplus_ratio': winner_surplus_ratio,
+            'surplus_efficiency': surplus_efficiency,
+            
+            # Price metrics
+            'price_premium_over_reserve': price_premium_over_reserve,
+            'price_premium_over_start': price_premium_over_start,
+            'reserve_price': reserve_price,
+            'start_price': start_price,
+            
+            # Raw data for further analysis
             'buyer_rewards': final_rewards['buyers'],
-            'total_surplus': final_rewards['seller'] + sum(final_rewards['buyers']),
-            'auction_successful': winner is not None,
-            'reserve_met': final_price >= self.config['seller']['reserve_price'] if final_price else False,
             'episode_log': episode_log
         }
         
         return results
     
     def _print_episode_summary(self, results: Dict[str, Any]):
-        """Print a summary of the episode results."""
+        """Print a summary of the episode results with enhanced economic analysis."""
         logger.info("")
         logger.info("🏁" + "=" * 58 + "🏁")
         logger.info("🏆                    AUCTION COMPLETE                    🏆")
@@ -432,12 +496,31 @@ Answer the questions directly and concisely:"""
         if results['auction_successful']:
             logger.info(f"✅ RESULT: SOLD for ${results['final_price']:,.0f}")
             logger.info(f"🏆 WINNER: {results['winner_persona']}")
-            logger.info(f"💰 SELLER PROFIT: ${results['seller_reward']:,.0f}")
-            logger.info(f"🎯 WINNER SURPLUS: ${results['buyer_rewards'][results['winner']]:,.0f}")
-            reserve_met = results['final_price'] >= self.config['seller']['reserve_price']
-            logger.info(f"📊 RESERVE STATUS: {'✅ MET' if reserve_met else '❌ NOT MET'}")
+            logger.info(f"💰 SELLER SURPLUS: ${results['seller_reward']:,.0f}")
+            logger.info(f"🛒 WINNER SURPLUS: ${results['winner_surplus']:,.0f}")
+            logger.info(f"📊 SURPLUS EFFICIENCY: {results['surplus_efficiency']:.1%}")
+            
+            # Price analysis
+            if results['price_premium_over_reserve']:
+                premium = results['price_premium_over_reserve'] * 100
+                logger.info(f"📈 PRICE PREMIUM OVER RESERVE: {premium:+.1f}%")
+            
+            if results['price_premium_over_start']:
+                start_premium = results['price_premium_over_start'] * 100
+                logger.info(f"🚀 PRICE INCREASE FROM START: {start_premium:+.1f}%")
+                
         else:
-            logger.info("❌ RESULT: NO SALE - Reserve price not met")
+            failure_reason = results.get('failure_reason', 'unknown')
+            if failure_reason == 'no_bids':
+                logger.info("❌ RESULT: NO SALE - No bids received")
+            elif failure_reason == 'below_reserve':
+                logger.info(f"❌ RESULT: NO SALE - Final price below reserve (${results['reserve_price']:,.0f})")
+                if results['final_price']:
+                    logger.info(f"💰 HIGHEST BID: ${results['final_price']:,.0f}")
+            else:
+                logger.info("❌ RESULT: NO SALE - Auction failed")
+            
+            logger.info("🔍 ECONOMIC INSIGHT: No deal was the economically rational outcome")
         
         logger.info(f"⏱️  DURATION: {results['episode_length']} rounds")
         logger.info(f"💎 TOTAL ECONOMIC SURPLUS: ${results['total_surplus']:,.0f}")
@@ -503,7 +586,7 @@ async def run_batch_episodes(config_path: str = "config.yaml", policy_type: str 
 
 
 def save_results_to_csv(results: List[Dict[str, Any]], filename: str):
-    """Save episode results to CSV file."""
+    """Save episode results to CSV file with enhanced economic metrics."""
     if not results:
         return
     
@@ -511,15 +594,33 @@ def save_results_to_csv(results: List[Dict[str, Any]], filename: str):
     csv_data = []
     for i, result in enumerate(results):
         row = {
+            # Basic episode info
             'episode': i,
+            'episode_length': result['episode_length'],
+            
+            # Auction outcome
+            'auction_successful': result['auction_successful'],
+            'reserve_met': result['reserve_met'],
+            'failure_reason': result.get('failure_reason', ''),
+            
+            # Price information
             'final_price': result['final_price'],
+            'start_price': result['start_price'],
+            'reserve_price': result['reserve_price'],
+            'price_premium_over_reserve': result.get('price_premium_over_reserve'),
+            'price_premium_over_start': result.get('price_premium_over_start'),
+            
+            # Winner information
             'winner': result['winner'],
             'winner_persona': result['winner_persona'],
-            'episode_length': result['episode_length'],
+            'winner_max_wtp': result.get('winner_max_wtp', 0),
+            
+            # Economic metrics
             'seller_reward': result['seller_reward'],
+            'winner_surplus': result.get('winner_surplus', 0),
             'total_surplus': result['total_surplus'],
-            'auction_successful': result['auction_successful'],
-            'reserve_met': result['reserve_met']
+            'winner_surplus_ratio': result.get('winner_surplus_ratio', 0),
+            'surplus_efficiency': result.get('surplus_efficiency', 0)
         }
         csv_data.append(row)
     
@@ -543,6 +644,8 @@ async def main():
     parser.add_argument("--output", default="results.csv", help="Output CSV file for batch results")
     parser.add_argument("--llm-seller", action="store_true", help="Use LLM for seller decisions")
     parser.add_argument("--verbose", action="store_true", default=True, help="Verbose output")
+    parser.add_argument("--phase1", action="store_true", help="Run Phase 1 Monte Carlo analysis (auto-runs with 10+ episodes)")
+    parser.add_argument("--no-analysis", action="store_true", help="Skip automatic Phase 1 analysis for batch runs")
     
     args = parser.parse_args()
     
@@ -564,15 +667,63 @@ async def main():
             output_file=args.output
         )
         
-        # Print summary statistics
+        # Print enhanced summary statistics
         successful_auctions = sum(1 for r in results if r['auction_successful'])
-        avg_price = np.mean([r['final_price'] for r in results if r['final_price'] > 0])
-        avg_surplus = np.mean([r['total_surplus'] for r in results])
+        failed_auctions = len(results) - successful_auctions
+        
+        # Calculate averages for successful auctions only
+        successful_results = [r for r in results if r['auction_successful']]
+        if successful_results:
+            avg_price = np.mean([r['final_price'] for r in successful_results])
+            avg_surplus = np.mean([r['total_surplus'] for r in successful_results])
+            avg_surplus_efficiency = np.mean([r['surplus_efficiency'] for r in successful_results])
+        else:
+            avg_price = 0
+            avg_surplus = 0
+            avg_surplus_efficiency = 0
+        
+        # Categorize failure reasons
+        failure_reasons = {}
+        for r in results:
+            if not r['auction_successful']:
+                reason = r.get('failure_reason', 'unknown')
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
         
         logger.info(f"BATCH SUMMARY:")
-        logger.info(f"Successful auctions: {successful_auctions}/{len(results)} ({100*successful_auctions/len(results):.1f}%)")
-        logger.info(f"Average final price: ${avg_price:,.0f}")
-        logger.info(f"Average total surplus: ${avg_surplus:,.0f}")
+        logger.info(f"✅ Successful auctions: {successful_auctions}/{len(results)} ({100*successful_auctions/len(results):.1f}%)")
+        
+        if failed_auctions > 0:
+            logger.info(f"❌ Failed auctions: {failed_auctions} ({100*failed_auctions/len(results):.1f}%)")
+            for reason, count in failure_reasons.items():
+                logger.info(f"   • {reason}: {count}")
+        
+        if successful_results:
+            logger.info(f"💰 Average final price: ${avg_price:,.0f}")
+            logger.info(f"💎 Average total surplus: ${avg_surplus:,.0f}")
+            logger.info(f"⚡ Average surplus efficiency: {avg_surplus_efficiency:.1%}")
+        else:
+            logger.info(f"💰 No successful auctions to analyze")
+        
+        # Automatically run Phase 1 analysis for batch runs with 10+ episodes
+        should_run_analysis = (
+            (args.phase1) or 
+            (args.episodes >= 10 and not args.no_analysis)
+        )
+        
+        if should_run_analysis:
+            logger.info(f"\n🔍 Running Phase 1 Monte Carlo Analysis...")
+            try:
+                from phase1_analytics import run_phase1_analysis
+                report = run_phase1_analysis(args.output, args.config, save_plots=True)
+                logger.info(f"📊 Phase 1 analysis complete! Results saved and visualized.")
+            except ImportError:
+                logger.warning(f"⚠️  Phase 1 analytics module not found. Skipping analysis.")
+            except Exception as e:
+                logger.error(f"❌ Error running Phase 1 analysis: {e}")
+        
+        elif args.episodes >= 10:
+            logger.info(f"\n💡 Tip: Run Phase 1 analysis with: python phase1_analytics.py {args.output}")
+            logger.info(f"📊 Or use --phase1 flag for automatic analysis")
 
 
 if __name__ == "__main__":

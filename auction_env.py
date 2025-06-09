@@ -140,9 +140,14 @@ class AuctionEnv(gym.Env):
         
         if terminated or truncated:
             self.auction_ended = True
+            # Only declare winner if reserve price is met AND there's a leading bidder
             if self.leading_bidder >= 0 and self.current_price >= self.reserve_price:
                 self.winner = self.leading_bidder
                 self.final_price = self.current_price
+            else:
+                # Auction failed - either no bids or price below reserve
+                self.winner = None
+                self.final_price = None
         
         # Calculate rewards
         rewards = self._calculate_rewards()

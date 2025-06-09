@@ -1,8 +1,15 @@
 # Top-level auction rules
 auction:
-  start_price: 10000
+  start_price: 8000       # Start below reserve to allow rejection scenarios
   max_rounds: 20          # Safety limit for rounds in a single auction
   bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
+
+# Persona variation settings
+persona_variation:
+  enabled: true           # Set to false for completely deterministic personas
+  max_wtp_variance: 0.1  # ±10% variation in max willingness to pay
+  risk_aversion_variance: 0.20  # ±0.20 variation in risk aversion (0.0-1.0 scale)
+  ask_prob_variance: 0.10 # ±10% relative variation in ask probability
 
 # Seller-specific parameters
 seller:
