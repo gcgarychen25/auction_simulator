@@ -71,4 +71,4 @@ checkpoints/
 
 # Temporary files
 tmp/
-temp/ 
+temp/ logging.txt
