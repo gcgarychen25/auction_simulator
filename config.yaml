@@ -1,0 +1,48 @@
+# Top-level auction rules
+auction:
+  start_price: 10000
+  max_rounds: 20          # Safety limit for rounds in a single auction
+  bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
+
+# Seller-specific parameters
+seller:
+  reserve_price: 9800 # Private price below which the seller will not sell
+
+# Buyer persona definitions
+buyers:
+  # B1: Cautious and prefers small, safe steps. Avoids risk.
+  - id: B1_CONSERVATIVE_INVESTOR
+    max_wtp: 12000  # Max Willingness-To-Pay
+    # High aversion (0.0-1.0 scale). Prefers smaller bids and is more likely to fold.
+    risk_aversion: 0.9
+    # Low probability of asking a question each round.
+    ask_prob: 0.05
+
+  # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
+  - id: B2_AGGRESSIVE_TRADER
+    max_wtp: 15000
+    # Low aversion, prefers larger bids (1000) and bidding frequently.
+    risk_aversion: 0.1
+    ask_prob: 0.0
+
+  # B3: Prefers to gather information before acting.
+  - id: B3_ANALYTICAL_BUYER
+    max_wtp: 14000
+    # Moderate aversion, but heuristic policy will strongly favor asking questions first.
+    risk_aversion: 0.6
+    # Very high probability of using one of their actions to ask a question.
+    ask_prob: 0.85
+
+  # B4: Has a very strict budget and will not exceed it under any circumstances.
+  - id: B4_BUDGET_CONSCIOUS
+    max_wtp: 11500
+    # High aversion. The heuristic policy will force a 'fold' if price > max_wtp.
+    risk_aversion: 0.8
+    ask_prob: 0.0
+
+  # B5: Prone to anxiety and bidding based on the actions of others.
+  - id: B5_FOMO_BIDDER
+    max_wtp: 13000
+    # Low aversion. Heuristic policy will increase bid probability if many others are active.
+    risk_aversion: 0.2
+    ask_prob: 0.0 

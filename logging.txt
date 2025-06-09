@@ -1,0 +1,144 @@
+WARNING:policies.rl_policy:Stable Baselines 3 not installed. RL policies will use fallback behavior.
+INFO:__main__:
+INFO:__main__:🚀==========================================================🚀
+INFO:__main__:🏠              AUCTION EPISODE 0 STARTING              🏠
+INFO:__main__:🚀==========================================================🚀
+INFO:__main__:🤖 POLICY TYPE: LLM-Enhanced
+INFO:__main__:💰 STARTING PRICE: $10,000
+INFO:__main__:📊 RESERVE PRICE: $9,800
+INFO:__main__:👥 BUYERS: 5 personas with different strategies
+INFO:__main__:🚀==========================================================🚀
+INFO:__main__:
+INFO:__main__:============================================================
+INFO:__main__:🏠 ROUND 1
+INFO:__main__:============================================================
+INFO:__main__:💰 Current Price: $11,000
+INFO:__main__:👥 Active Buyers: 4/5
+INFO:__main__:🎯 Leading Bidder: B2_AGGRESSIVE_TRADER
+INFO:__main__:📊 Reserve Price: $9,800 ✅ MET
+INFO:__main__:
+🤖 SELLER ACTION: [ANNOUNCE (continue auction)]
+INFO:__main__:💬 "Going once at $10,000! Do I hear $10,500?"
+INFO:__main__:
+👥 BUYER ACTIONS:
+INFO:__main__:💵 NEW BIDS:
+INFO:__main__:   • B2_AGGRESSIVE_TRADER: $11,000
+INFO:__main__:   • B4_BUDGET_CONSCIOUS: $10,500
+INFO:__main__:   • B5_FOMO_BIDDER: $11,000
+INFO:__main__:❓ QUESTIONS:
+INFO:__main__:   • B3_ANALYTICAL_BUYER: Question from B3_ANALYTICAL_BUYER: What is the condition of the property?
+INFO:__main__:
+📋 ALL BUYER ACTIONS:
+INFO:__main__:   🔴 B1_CONSERVATIVE_INVESTOR: FOLD (Bids left: 3)
+INFO:__main__:   🟢 B2_AGGRESSIVE_TRADER: BID_$1000 (Bids left: 2)
+INFO:__main__:   🟢 B3_ANALYTICAL_BUYER: ASK_QUESTION (Bids left: 3)
+INFO:__main__:   🟢 B4_BUDGET_CONSCIOUS: BID_$500 (Bids left: 2)
+INFO:__main__:   🟢 B5_FOMO_BIDDER: BID_$1000 (Bids left: 2)
+INFO:__main__:
+INFO:__main__:============================================================
+INFO:__main__:🏠 ROUND 2
+INFO:__main__:============================================================
+INFO:__main__:💰 Current Price: $12,000
+INFO:__main__:👥 Active Buyers: 4/5
+INFO:__main__:🎯 Leading Bidder: B2_AGGRESSIVE_TRADER
+INFO:__main__:📊 Reserve Price: $9,800 ✅ MET
+INFO:__main__:
+🤖 SELLER ACTION: [ANSWER (respond to questions)]
+INFO:__main__:💬 "LLM: "The property is being sold strictly in 'as-is, where-is' condition, typical for auction sales. We strongly recommend all bidders conduct their own thorough due diligence and inspections prior to bidding.""
+INFO:__main__:
+👥 BUYER ACTIONS:
+INFO:__main__:💵 NEW BIDS:
+INFO:__main__:   • B2_AGGRESSIVE_TRADER: $12,000
+INFO:__main__:   • B4_BUDGET_CONSCIOUS: $11,500
+INFO:__main__:   • B5_FOMO_BIDDER: $11,500
+INFO:__main__:❓ QUESTIONS:
+INFO:__main__:   • B3_ANALYTICAL_BUYER: Question from B3_ANALYTICAL_BUYER: What is the condition of the property?
+INFO:__main__:
+📋 ALL BUYER ACTIONS:
+INFO:__main__:   🔴 B1_CONSERVATIVE_INVESTOR: FOLD (Bids left: 3)
+INFO:__main__:   🟢 B2_AGGRESSIVE_TRADER: BID_$1000 (Bids left: 1)
+INFO:__main__:   🟢 B3_ANALYTICAL_BUYER: ASK_QUESTION (Bids left: 3)
+INFO:__main__:   🟢 B4_BUDGET_CONSCIOUS: BID_$500 (Bids left: 1)
+INFO:__main__:   🟢 B5_FOMO_BIDDER: BID_$500 (Bids left: 1)
+INFO:__main__:
+INFO:__main__:============================================================
+INFO:__main__:🏠 ROUND 3
+INFO:__main__:============================================================
+INFO:__main__:💰 Current Price: $13,000
+INFO:__main__:👥 Active Buyers: 3/5
+INFO:__main__:🎯 Leading Bidder: B2_AGGRESSIVE_TRADER
+INFO:__main__:📊 Reserve Price: $9,800 ✅ MET
+INFO:__main__:
+🤖 SELLER ACTION: [ANSWER (respond to questions)]
+INFO:__main__:💬 "LLM: The property is being sold strictly "as-is, where-is" with all faults. We strongly encourage you to review the detailed inspection reports and disclosures available in the bidder information packet, and to conduct your own thorough due diligence."
+INFO:__main__:
+👥 BUYER ACTIONS:
+INFO:__main__:💵 NEW BIDS:
+INFO:__main__:   • B2_AGGRESSIVE_TRADER: $13,000
+INFO:__main__:   • B5_FOMO_BIDDER: $12,500
+INFO:__main__:❓ QUESTIONS:
+INFO:__main__:   • B3_ANALYTICAL_BUYER: Question from B3_ANALYTICAL_BUYER: What is the condition of the property?
+INFO:__main__:
+📋 ALL BUYER ACTIONS:
+INFO:__main__:   🔴 B1_CONSERVATIVE_INVESTOR: FOLD (Bids left: 3)
+INFO:__main__:   🟢 B2_AGGRESSIVE_TRADER: BID_$1000 (Bids left: 0)
+INFO:__main__:   🟢 B3_ANALYTICAL_BUYER: ASK_QUESTION (Bids left: 3)
+INFO:__main__:   🔴 B4_BUDGET_CONSCIOUS: FOLD (Bids left: 1)
+INFO:__main__:   🟢 B5_FOMO_BIDDER: BID_$500 (Bids left: 0)
+INFO:__main__:
+INFO:__main__:============================================================
+INFO:__main__:🏠 ROUND 4
+INFO:__main__:============================================================
+INFO:__main__:💰 Current Price: $13,000
+INFO:__main__:👥 Active Buyers: 1/5
+INFO:__main__:🎯 Leading Bidder: B2_AGGRESSIVE_TRADER
+INFO:__main__:📊 Reserve Price: $9,800 ✅ MET
+INFO:__main__:
+🤖 SELLER ACTION: [ANSWER (respond to questions)]
+INFO:__main__:💬 "LLM: **B3_ANALYTICAL_BUYER:** The property is being sold in its current 'as-is, where-is' condition, with no warranties or representations regarding its state. We encourage all prospective buyers to review the property information package for any available disclosures or reports."
+INFO:__main__:
+👥 BUYER ACTIONS:
+INFO:__main__:❓ QUESTIONS:
+INFO:__main__:   • B3_ANALYTICAL_BUYER: Question from B3_ANALYTICAL_BUYER: What is the condition of the property?
+INFO:__main__:
+📋 ALL BUYER ACTIONS:
+INFO:__main__:   🔴 B1_CONSERVATIVE_INVESTOR: FOLD (Bids left: 3)
+INFO:__main__:   🔴 B2_AGGRESSIVE_TRADER: FOLD (Bids left: 0)
+INFO:__main__:   🟢 B3_ANALYTICAL_BUYER: ASK_QUESTION (Bids left: 3)
+INFO:__main__:   🔴 B4_BUDGET_CONSCIOUS: FOLD (Bids left: 1)
+INFO:__main__:   🔴 B5_FOMO_BIDDER: FOLD (Bids left: 0)
+INFO:__main__:
+INFO:__main__:============================================================
+INFO:__main__:🏠 ROUND 5
+INFO:__main__:============================================================
+INFO:__main__:💰 Current Price: $13,000
+INFO:__main__:👥 Active Buyers: 0/5
+INFO:__main__:🎯 Leading Bidder: B2_AGGRESSIVE_TRADER
+INFO:__main__:📊 Reserve Price: $9,800 ✅ MET
+INFO:__main__:
+🤖 SELLER ACTION: [ANSWER (respond to questions)]
+INFO:__main__:💬 "LLM: The property is being sold in "as-is, where-is" condition, and we encourage all prospective buyers to have conducted their own due diligence and inspections prior to bidding."
+INFO:__main__:
+👥 BUYER ACTIONS:
+INFO:__main__:
+📋 ALL BUYER ACTIONS:
+INFO:__main__:   🔴 B1_CONSERVATIVE_INVESTOR: FOLD (Bids left: 3)
+INFO:__main__:   🔴 B2_AGGRESSIVE_TRADER: FOLD (Bids left: 0)
+INFO:__main__:   🔴 B3_ANALYTICAL_BUYER: FOLD (Bids left: 3)
+INFO:__main__:   🔴 B4_BUDGET_CONSCIOUS: FOLD (Bids left: 1)
+INFO:__main__:   🔴 B5_FOMO_BIDDER: FOLD (Bids left: 0)
+INFO:__main__:
+INFO:__main__:🏁==========================================================🏁
+INFO:__main__:🏆                    AUCTION COMPLETE                    🏆
+INFO:__main__:🏁==========================================================🏁
+INFO:__main__:✅ RESULT: SOLD for $13,000
+INFO:__main__:🏆 WINNER: B2_AGGRESSIVE_TRADER
+INFO:__main__:💰 SELLER PROFIT: $3,200
+INFO:__main__:🎯 WINNER SURPLUS: $2,000
+INFO:__main__:📊 RESERVE STATUS: ✅ MET
+INFO:__main__:⏱️  DURATION: 5 rounds
+INFO:__main__:💎 TOTAL ECONOMIC SURPLUS: $5,200
+INFO:__main__:🏁==========================================================🏁
+INFO:__main__:
+✅ Single episode completed successfully
+✅ Environment variables loaded from .env file
