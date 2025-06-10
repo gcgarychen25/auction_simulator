@@ -11,6 +11,7 @@ import numpy as np
 from typing import Dict, List, Any, Tuple, Optional
 import yaml
 from collections import defaultdict
+import copy
 
 
 class AuctionEnv(gym.Env):
@@ -24,20 +25,27 @@ class AuctionEnv(gym.Env):
     """
     
     def __init__(self, config: Dict[str, Any]):
-        """Initialize the auction environment with configuration."""
+        """Initialize the auction environment."""
         super().__init__()
         
         self.config = config
-        self.auction_config = config['auction']
-        self.seller_config = config['seller']
-        self.buyers_config = config['buyers']
         
-        # Constants
-        self.num_buyers = len(self.buyers_config)
-        self.max_rounds = self.auction_config['max_rounds']
-        self.bid_limit_per_buyer = self.auction_config['bid_limit_per_buyer']
-        self.start_price = self.auction_config['start_price']
-        self.reserve_price = self.seller_config['reserve_price']
+        # Core environment parameters from the 'environment' section
+        env_config = self.config['environment']
+        self.start_price = env_config['auction']['start_price']
+        self.max_rounds = env_config['auction']['max_rounds']
+        self.bid_limit = env_config['auction']['bid_limit_per_buyer']
+        self.reserve_price = env_config['seller']['reserve_price']
+        
+        # Buyer configurations
+        self.num_buyers = len(env_config['buyers'])
+        self.base_buyers_config = env_config['buyers']
+        
+        # Persona variation config from 'phase1_heuristic_settings'
+        self.persona_variation_config = self.config.get('phase1_heuristic_settings', {}).get('persona_variation', {})
+        
+        # Initialize state attributes
+        self.reset()
         
         # State variables (reset in reset())
         self.current_price = None
@@ -57,7 +65,7 @@ class AuctionEnv(gym.Env):
         self.observation_space = spaces.Dict({
             'price': spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
             'round_no': spaces.Box(low=0, high=self.max_rounds, shape=(1,), dtype=np.int32),
-            'bids_left': spaces.Box(low=0, high=self.bid_limit_per_buyer, 
+            'bids_left': spaces.Box(low=0, high=self.bid_limit, 
                                   shape=(self.num_buyers,), dtype=np.int32),
             'active_mask': spaces.Box(low=0, high=1, shape=(self.num_buyers,), dtype=np.int32),
             'last_increment': spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
@@ -73,28 +81,37 @@ class AuctionEnv(gym.Env):
         """Reset the environment to its initial state."""
         super().reset(seed=seed)
         
-        # Initialize state variables
+        # Vary personas at the start of each episode if enabled
+        if self.persona_variation_config.get('enabled', False):
+            self.buyers_config = self._vary_personas()
+            self.varied_personas_info = self.buyers_config
+        else:
+            self.buyers_config = self.base_buyers_config
+            self.varied_personas_info = None
+        
+        # State variables
         self.current_price = float(self.start_price)
         self.round_no = 0
-        self.bids_left = np.array([self.bid_limit_per_buyer] * self.num_buyers, dtype=np.int32)
+        self.bids_left = np.array([self.bid_limit] * self.num_buyers, dtype=np.int32)
         self.active_mask = np.ones(self.num_buyers, dtype=np.int32)
         self.last_increment = 0.0
-        self.leading_bidder = -1  # No bidder initially
-        self.auction_ended = False
         self.winner = None
         self.final_price = None
+        self.auction_ended = False
+        self.questions_this_round = []
         
         # Clear history
         self.action_history = []
         
-        observation = self._get_obs()
+        # Return initial observation and info
+        obs = self._get_obs()
         info = {
             'auction_just_started': True,
             'buyers_config': self.buyers_config,
-            'seller_config': self.seller_config
+            'seller_config': self.config['environment']['seller'],
+            'varied_personas': self.varied_personas_info
         }
-        
-        return observation, info
+        return obs, info
     
     def step(self, actions: Dict[str, int]) -> Tuple[Dict, Dict, bool, bool, Dict]:
         """
@@ -211,7 +228,7 @@ class AuctionEnv(gym.Env):
                     self.bids_left[buyer_idx] -= 1
                     
             elif action == 3:  # ask_question
-                persona_id = self.buyers_config[buyer_idx]['id']
+                persona_id = self.base_buyers_config[buyer_idx]['id']
                 questions.append((buyer_idx, f"Question from {persona_id}: What is the condition of the property?"))
         
         return new_bids, questions
@@ -238,7 +255,7 @@ class AuctionEnv(gym.Env):
         
         if self.auction_ended and self.winner is not None:
             # Winning buyer reward: max_wtp - final_price
-            winning_buyer_wtp = self.buyers_config[self.winner]['max_wtp']
+            winning_buyer_wtp = self.base_buyers_config[self.winner]['max_wtp']
             rewards['buyers'][self.winner] = winning_buyer_wtp - self.final_price
             
             # Seller reward: final_price - reserve_price
@@ -262,7 +279,23 @@ class AuctionEnv(gym.Env):
     
     def get_buyer_personas(self) -> List[Dict]:
         """Get buyer persona configurations."""
-        return self.buyers_config.copy()
+        return self.base_buyers_config.copy()
+
+    def _vary_personas(self) -> List[Dict[str, Any]]:
+        """
+        Vary the personas of the buyers based on the persona_variation_config.
+        
+        Returns:
+            List of varied buyer configurations
+        """
+        varied_buyers = []
+        for buyer in self.base_buyers_config:
+            varied_buyer = copy.deepcopy(buyer)
+            for variation, config in self.persona_variation_config.items():
+                if variation in buyer:
+                    varied_buyer[variation] = config.get(buyer[variation], buyer[variation])
+            varied_buyers.append(varied_buyer)
+        return varied_buyers
 
 
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:

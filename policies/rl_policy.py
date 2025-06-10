@@ -17,37 +17,10 @@ from typing import Dict, List, Any
 import logging
 from pathlib import Path
 
+from .networks import ActorCritic
+
 # Configure logging
 logger = logging.getLogger(__name__)
-
-class ActorCritic(nn.Module):
-    """
-    Combined Actor-Critic network for PPO.
-    Contains a shared feature backbone, a policy head (actor), and a value head (critic).
-    """
-    def __init__(self, input_dim: int, output_dim: int):
-        super(ActorCritic, self).__init__()
-        self.shared_layer = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU()
-        )
-        self.actor_head = nn.Sequential(
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, output_dim),
-            nn.Softmax(dim=-1)
-        )
-        self.critic_head = nn.Sequential(
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1)
-        )
-
-    def forward(self, x):
-        features = self.shared_layer(x)
-        action_probs = self.actor_head(features)
-        state_value = self.critic_head(features)
-        return action_probs, state_value
 
 class RLPolicyManager:
     """
@@ -56,21 +29,31 @@ class RLPolicyManager:
     def __init__(self, config: Dict[str, Any], training_mode: bool = True):
         self.config = config
         self.training_mode = training_mode
-        self.buyers = config['buyers']
+        self.buyers = config['environment']['buyers']
         self.num_buyers = len(self.buyers)
         self.observation_dim = 8  # Expanded features
         self.action_dim = 4      # Fold, Bid 500, Bid 1000, Ask
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # PPO Hyperparameters
-        self.gamma = 0.99
-        self.gae_lambda = 0.95
-        self.clip_epsilon = 0.2
-        self.ppo_epochs = 10
-        self.batch_size = 32
+        # PPO Hyperparameters from config
+        ppo_config = config.get('phase2_rl_settings', {})
+        self.gamma = ppo_config.get('gamma', 0.99)
+        self.gae_lambda = ppo_config.get('gae_lambda', 0.95)
+        self.lr = ppo_config.get('lr', 0.0003)
+        self.clip_epsilon = ppo_config.get('clip_epsilon', 0.2)
+        self.ppo_epochs = ppo_config.get('ppo_epochs', 10)
+        self.batch_size = ppo_config.get('batch_size', 32)
+        self.vf_coef = ppo_config.get('vf_coef', 0.5)
+        self.ent_coef = ppo_config.get('ent_coef', 0.01)
+        self.max_grad_norm = ppo_config.get('max_grad_norm', 0.5)
+        self.seed = ppo_config.get('seed', 42)
+
+        # Set seed for reproducibility
+        torch.manual_seed(self.seed)
+        np.random.seed(self.seed)
 
         self.policies = [ActorCritic(self.observation_dim, self.action_dim).to(self.device) for _ in range(self.num_buyers)]
-        self.optimizers = [optim.Adam(policy.parameters(), lr=0.0003) for policy in self.policies]
+        self.optimizers = [optim.Adam(policy.parameters(), lr=self.lr) for policy in self.policies]
         
         self.memory = [self._create_memory_buffer() for _ in range(self.num_buyers)]
         self.training_history = {'episode_rewards': [[] for _ in range(self.num_buyers)], 'performance_metrics': []}
@@ -82,19 +65,28 @@ class RLPolicyManager:
 
     def _get_state_tensor(self, observation: Dict, buyer_idx: int) -> torch.Tensor:
         """Constructs a feature-rich state tensor."""
-        persona = self.buyers[buyer_idx]
+        # Use varied personas if they exist for the current episode
+        if 'varied_personas' in observation and observation['varied_personas']:
+            persona = observation['varied_personas'][buyer_idx]
+        else:
+            persona = self.buyers[buyer_idx]
+
         price = observation['price'][0]
-        wtp = persona.get('max_wtp', 1)
+        max_wtp = persona.get('max_wtp', 1)
+        
+        # Calculate headroom and price ratio
+        price_ratio = min(price / max_wtp, 2.0) if max_wtp > 0 else 2.0  # Cap at 2.0
+        headroom = max(max_wtp - price, 0) / max_wtp if max_wtp > 0 else 0.0
         
         state = [
-            price,
-            observation['round_no'][0],
-            observation['bids_left'][buyer_idx],
+            price / 1_000_000,  # Normalize price
+            observation['round_no'][0] / 20.0, # Normalize round
+            observation['bids_left'][buyer_idx] / 5.0, # Normalize bids left
             observation['active_mask'][buyer_idx],
-            observation['last_increment'][0],
-            min(price / wtp, 1.0) if wtp > 0 else 1.0,
-            max(wtp - price, 0) / wtp if wtp > 0 else 0,
-            sum(observation['active_mask']) - observation['active_mask'][buyer_idx]
+            observation['last_increment'][0] / 5000.0, # Normalize increment
+            price_ratio,
+            headroom,
+            (sum(observation['active_mask']) - observation['active_mask'][buyer_idx]) / (self.num_buyers -1) if self.num_buyers > 1 else 0
         ]
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
     
@@ -106,20 +98,25 @@ class RLPolicyManager:
         state_tensor = self._get_state_tensor(observation, buyer_idx)
         policy = self.policies[buyer_idx]
         
+        # Action masking
+        action_mask = torch.ones(self.action_dim, device=self.device)
+        if observation['bids_left'][buyer_idx] == 0:
+            action_mask[1] = 0 # Cannot bid 500
+            action_mask[2] = 0 # Cannot bid 1000
+            
         with torch.no_grad():
-            action_probs, state_value = policy(state_tensor)
+            action, log_prob, entropy = policy.get_action(state_tensor, action_mask)
         
-        m = Categorical(action_probs)
-        action = m.sample()
-        log_prob = m.log_prob(action)
+        # We need the value for GAE calculation
+        _, state_value = policy(state_tensor)
 
         if self.training_mode:
             self.memory[buyer_idx]['states'].append(state_tensor)
-            self.memory[buyer_idx]['actions'].append(action)
+            self.memory[buyer_idx]['actions'].append(torch.tensor([action], device=self.device))
             self.memory[buyer_idx]['log_probs'].append(log_prob)
             self.memory[buyer_idx]['values'].append(state_value)
 
-        return action.item()
+        return action
 
     def record_round_results(self, terminated: bool, truncated: bool):
         """Record rewards and done flags for each agent after a round."""
@@ -130,127 +127,123 @@ class RLPolicyManager:
         for i in range(self.num_buyers):
             # Only record results for agents that took an action this round
             if len(self.memory[i]['values']) > len(self.memory[i]['rewards']):
-                self.memory[i]['rewards'].append(0.0) # Placeholder reward, to be filled at episode end
+                # Placeholder reward, to be filled at episode end. Dones are for THIS step.
+                self.memory[i]['rewards'].append(0.0) 
                 self.memory[i]['dones'].append(done)
 
     def finalize_episode_and_update(self, final_info: Dict, final_rewards: Dict):
         """At the end of an episode, compute GAE and update PPO policies."""
         if not self.training_mode:
-                return
+            return
             
-        winner_idx = final_info.get('winner')
-        
-        # --- Calculate the Shared Market Welfare Reward ---
-        if winner_idx is not None and final_rewards:
-            total_market_surplus = final_rewards.get('seller', 0) + final_rewards['buyers'][winner_idx]
-        else:
-            total_market_surplus = 0 # No surplus if the auction fails
-
         for buyer_idx in range(self.num_buyers):
+            # Skip update if agent took no actions
             if not self.memory[buyer_idx]['states']:
                 continue
             
-            is_winner = (buyer_idx == winner_idx)
+            # --- Calculate a detailed, persona-specific reward ---
+            final_reward = self._calculate_persona_reward(buyer_idx, final_info, final_rewards)
+            self.training_history['episode_rewards'][buyer_idx].append(final_reward)
 
-            # Assign the final, shaped rewards to the agent's memory
-            self._shape_and_assign_rewards(buyer_idx, is_winner, total_market_surplus)
+            # --- Assign Final Reward to Memory ---
+            # The final reward is assigned to the last step of the episode
+            if self.memory[buyer_idx]['rewards']:
+                self.memory[buyer_idx]['rewards'][-1] = final_reward
             
             # --- Compute GAE & Update ---
             advantages, returns = self._compute_gae(buyer_idx)
             self._update_ppo_policy(buyer_idx, advantages, returns)
             
-            # --- Clear Memory ---
+            # --- Clear Memory for Next Episode ---
             self.memory[buyer_idx] = self._create_memory_buffer()
-    
-    def _shape_and_assign_rewards(self, buyer_idx: int, is_winner: bool, market_surplus: float):
-        """Calculates and assigns the final rewards for an episode's trajectory."""
-        num_steps = len(self.memory[buyer_idx]['rewards'])
-        if num_steps == 0:
-            self.training_history['episode_rewards'][buyer_idx].append(0)
-            return
 
-        # 1. Start with exploration bonuses/penalties for each step
-        step_rewards = []
-        for i in range(num_steps):
-            action = self.memory[buyer_idx]['actions'][i].item()
-            if action in [1, 2]: # Any bid action
-                step_rewards.append(1.0)
-            elif action == 0: # Fold action
-                step_rewards.append(-1.0)
-            else: # Ask question
-                step_rewards.append(0.0)
-
-        # 2. Add the main terminal reward (shared market surplus) to the last step
-        step_rewards[-1] += market_surplus
-
-        # 3. Add a persona-specific bonus for the winner
+    def _calculate_persona_reward(self, buyer_idx: int, final_info: Dict, final_rewards: Dict) -> float:
+        """Calculates the final episode reward for an agent based on its persona."""
+        persona = self.buyers[buyer_idx]
+        max_wtp = persona['max_wtp']
+        
+        winner_idx = final_info.get('winner')
+        is_winner = (buyer_idx == winner_idx)
+        
+        # 1. Primary Reward: Individual Surplus
+        # This is the main driver for agent behavior.
         if is_winner:
-            persona = self.buyers[buyer_idx]
-            winner_bonus = 0
+            # Winner's reward is their direct surplus
+            primary_reward = final_rewards['buyers'][winner_idx]
+        else:
+            # Non-winners get a small penalty for losing to incentivize winning
+            primary_reward = -100  
+
+        # 2. Shared Economic Welfare Reward (for all participants)
+        # Encourages agents to cooperate to make a successful auction happen
+        if winner_idx is not None:
+            total_market_surplus = final_rewards.get('seller', 0) + final_rewards['buyers'][winner_idx]
+            shared_reward = total_market_surplus * 0.1 # All agents get 10% of total surplus created
+        else:
+            shared_reward = -200 # Larger penalty if the auction fails entirely
+
+        # 3. Persona-Specific "Style" Bonus (small nudge, only for the winner)
+        style_bonus = 0
+        if is_winner:
+            actions_taken = [a.item() for a in self.memory[buyer_idx]['actions']]
+            persona_type = persona['id'].split('_')[1]
+
+            if persona_type == "AGGRESSIVE" and 2 in actions_taken:
+                style_bonus = 50
+            elif persona_type == "ANALYTICAL" and 3 in actions_taken:
+                style_bonus = 75
             
-            if persona['id'] == 'B2_AGGRESSIVE_TRADER':
-                num_aggressive_bids = sum(1 for action in self.memory[buyer_idx]['actions'] if action.item() == 2)
-                winner_bonus += num_aggressive_bids * 50
-            elif persona['id'] == 'B3_ANALYTICAL_BUYER':
-                num_questions = sum(1 for action in self.memory[buyer_idx]['actions'] if action.item() == 3)
-                winner_bonus += num_questions * 75
-            
-            step_rewards[-1] += winner_bonus
-        
-        # 4. Replace the placeholder rewards in memory with the final calculated rewards
-        self.memory[buyer_idx]['rewards'] = step_rewards
-        
-        # 5. Log the final total reward for analytics
-        total_reward = sum(step_rewards)
-        self.training_history['episode_rewards'][buyer_idx].append(total_reward)
+        total_reward = primary_reward + shared_reward + style_bonus
+        return total_reward
     
     def _compute_gae(self, buyer_idx: int) -> (torch.Tensor, torch.Tensor):
         """Compute Generalized Advantage Estimation."""
-        # This function now assumes self.memory[buyer_idx]['rewards'] has been finalized
-        rewards = self.memory[buyer_idx]['rewards']
-        values = self.memory[buyer_idx]['values']
-        dones = self.memory[buyer_idx]['dones']
+        memory = self.memory[buyer_idx]
+        rewards = memory['rewards']
+        values = torch.cat(memory['values']).squeeze(-1).detach()
+        dones = memory['dones']
         
         advantages = []
         last_advantage = 0
-        # The last value is not from memory, it's the value of the state AFTER the last action
-        # If the last state is terminal, its value is 0
-        if dones[-1]:
-            last_value = 0
-        else:
-            # Bootstrap from the value of the next state (which we don't have, so we use the last known value)
-             last_value = values[-1].item()
+        
+        # Get the value of the state that comes *after* the last action
+        with torch.no_grad():
+            if dones[-1]:
+                next_value = 0
+            else:
+                 # Bootstrap from the value of the final state
+                _, next_value_tensor = self.policies[buyer_idx](memory['states'][-1])
+                next_value = next_value_tensor.item()
 
         for t in reversed(range(len(rewards))):
             mask = 1.0 - dones[t]
-            # Use .item() to get scalar values for calculation
-            delta = rewards[t] + self.gamma * last_value * mask - values[t].item()
+            delta = rewards[t] + self.gamma * next_value * mask - values[t].item()
             last_advantage = delta + self.gamma * self.gae_lambda * last_advantage * mask
             advantages.insert(0, last_advantage)
-            last_value = values[t].item()
+            next_value = values[t].item()
             
         returns = [adv + val.item() for adv, val in zip(advantages, values)]
         
         advantages = torch.tensor(advantages, dtype=torch.float32, device=self.device)
         returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
         
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # Normalize advantages only if there's more than one sample to avoid NaN from std()
+        if advantages.numel() > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         return advantages, returns
     
     def _update_ppo_policy(self, buyer_idx: int, advantages: torch.Tensor, returns: torch.Tensor):
         """Perform PPO update for a single agent."""
         memory = self.memory[buyer_idx]
-        states = torch.cat(memory['states'])
+        states = torch.cat(memory['states']).squeeze(1)
         actions = torch.cat(memory['actions'])
-        old_log_probs = torch.cat(memory['log_probs']).detach()
+        old_log_probs = torch.stack(memory['log_probs']).detach()
         
         policy = self.policies[buyer_idx]
         optimizer = self.optimizers[buyer_idx]
         
         for _ in range(self.ppo_epochs):
-            # Create batches
             num_samples = len(states)
             indices = np.arange(num_samples)
             np.random.shuffle(indices)
@@ -258,110 +251,94 @@ class RLPolicyManager:
             for start in range(0, num_samples, self.batch_size):
                 end = start + self.batch_size
                 batch_indices = indices[start:end]
-
-                # Get batch data
+                
+                # Get batch from data
                 batch_states = states[batch_indices]
                 batch_actions = actions[batch_indices]
-                batch_old_log_probs = old_log_probs[batch_indices]
                 batch_advantages = advantages[batch_indices]
                 batch_returns = returns[batch_indices]
+                batch_old_log_probs = old_log_probs[batch_indices]
                 
-                # Get new policy probabilities and values
-                new_probs, new_values = policy(batch_states)
-                new_values = new_values.squeeze(-1) # Ensure correct shape
+                # Evaluate current policy on batch
+                log_probs, state_values, entropy = policy.evaluate_action(batch_states, batch_actions)
                 
-                m = Categorical(new_probs)
-                new_log_probs = m.log_prob(batch_actions)
+                # Calculate PPO ratio
+                ratio = torch.exp(log_probs - batch_old_log_probs)
                 
-                # --- PPO Policy (Actor) Loss ---
-                ratio = (new_log_probs - batch_old_log_probs).exp()
+                # Calculate surrogate objectives
                 surr1 = ratio * batch_advantages
                 surr2 = torch.clamp(ratio, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon) * batch_advantages
+                
+                # Calculate losses
                 actor_loss = -torch.min(surr1, surr2).mean()
+                critic_loss = (state_values.squeeze() - batch_returns).pow(2).mean()
+                entropy_loss = -entropy.mean()
                 
-                # --- Value (Critic) Loss ---
-                critic_loss = nn.functional.mse_loss(new_values, batch_returns)
+                total_loss = actor_loss + self.vf_coef * critic_loss + self.ent_coef * entropy_loss
                 
-                # --- Entropy Bonus ---
-                entropy = m.entropy().mean()
-                
-                # --- Total Loss ---
-                # The critic loss coefficient is often 0.5, entropy bonus coefficient 0.01
-                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
-                
-                # --- Update ---
+                # Update policy
                 optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), 0.5) # Gradient clipping
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), self.max_grad_norm)
                 optimizer.step()
 
-    # --- Model Loading/Saving ---
     def save_models(self, directory: str = "rl_models"):
-        """Save all policy models to a directory."""
+        """Save trained models and optimizers for all agents."""
         path = Path(directory)
-        path.mkdir(exist_ok=True)
+        path.mkdir(parents=True, exist_ok=True)
         for i, policy in enumerate(self.policies):
-            model_path = path / f"buyer_{i}_{self.buyers[i]['id']}.pth"
-            torch.save(policy.state_dict(), model_path)
-        logger.info(f"💾 PPO models saved to {directory}")
+            torch.save(policy.state_dict(), path / f"buyer_{i}_policy_{self.buyers[i]['id']}.pth")
+        logger.info(f"💾 Models saved to {directory}")
 
     def load_models(self, directory: str = "rl_models"):
-        """Load all policy models from a directory."""
+        """Load pre-trained models for all agents."""
         path = Path(directory)
         if not path.exists():
-            logger.warning(f"RL model directory not found: {directory}. Using fresh models.")
+            logger.warning(f"⚠️  Could not load models: Directory '{directory}' not found.")
             return
 
         for i, policy in enumerate(self.policies):
-            model_path = path / f"buyer_{i}_{self.buyers[i]['id']}.pth"
+            model_path = path / f"buyer_{i}_policy.pth"
             if model_path.exists():
                 policy.load_state_dict(torch.load(model_path, map_location=self.device))
-                policy.eval()
-                logger.info(f"✅ Loaded PPO model for {self.buyers[i]['id']}")
+                policy.eval() # Set to evaluation mode
             else:
-                logger.warning(f"⚠️ Model file not found for {self.buyers[i]['id']}. Using fresh model.")
-        self.training_mode = False
+                 logger.warning(f"⚠️  Model for buyer {i} not found at {model_path}")
+        logger.info(f"✅ Models loaded from {directory}")
 
     def save_training_history(self, directory: str = "rl_models"):
+        """Save training history (rewards, etc.) to a file."""
         path = Path(directory)
-        path.mkdir(exist_ok=True)
+        path.mkdir(parents=True, exist_ok=True)
         history_file = path / "training_history.json"
-        with open(history_file, 'w') as f:
-            json.dump(self.training_history, f, indent=4)
-        logger.info(f"📊 Training history saved to {history_file}")
-
-    def get_seller_action(self, observation: Dict, info: Dict) -> int:
-        """Provides a simple heuristic for the seller in an RL context."""
-        active_buyers = sum(observation['active_mask'])
-        round_no = observation['round_no'][0]
-        reserve_met = observation['price'][0] >= self.config['seller']['reserve_price']
-
-        if round_no > 5 and active_buyers <= 1 and reserve_met:
-            return 2
         
-        return 0
+        # Convert tensors in performance metrics to serializable format
+        history_to_save = {
+            'episode_rewards': self.training_history['episode_rewards'],
+            'performance_metrics': []
+        }
+        for perf_record in self.training_history.get('performance_metrics', []):
+            serializable_record = {'episode': perf_record['episode'], 'metrics': {}}
+            for group, metrics in perf_record['metrics'].items():
+                serializable_record['metrics'][group] = {k: v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()}
+            history_to_save['performance_metrics'].append(serializable_record)
 
-
-# TODO: For Phase 2 - Training utilities
-def train_rl_policies(config: Dict[str, Any], save_dir: str, total_timesteps: int = 100000):
-    """
-    Train RL policies for all agents.
-    
-    This function will be implemented in Phase 2 to train PPO agents
-    on the auction environment.
-    
-    Args:
-        config: Configuration dictionary
-        save_dir: Directory to save trained models
-        total_timesteps: Number of training timesteps
-    """
-    logger.info("RL policy training not yet implemented - this is for Phase 2")
-    logger.info("Current Phase 0 focuses on heuristic policies only")
-    
-    # TODO: Implement multi-agent training loop
-    # 1. Create auction environment
-    # 2. Initialize PPO agents
-    # 3. Train agents in parallel
-    # 4. Save trained models to save_dir
-    
-    pass 
+        with open(history_file, 'w') as f:
+            json.dump(history_to_save, f, indent=4)
+        logger.info(f"📊 Training history saved to {history_file}")
+        
+    def get_seller_action(self, observation: Dict, info: Dict) -> int:
+        """
+        Provides a basic heuristic action for the seller.
+        This RL manager is focused on buyer agents, so seller logic is simple.
+        """
+        current_price = observation['price'][0]
+        reserve_price = self.config['environment']['seller']['reserve_price']
+        active_buyers = sum(observation['active_mask'])
+        
+        # If reserve is met and few buyers are left, consider closing.
+        if current_price >= reserve_price and active_buyers <= 1:
+            return 2 # Close auction
+        
+        # Otherwise, just continue.
+        return 0 # Announce next round 

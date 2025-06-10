@@ -1,55 +1,71 @@
-# Top-level auction rules
-auction:
-  start_price: 8000       # Start below reserve to allow rejection scenarios
-  max_rounds: 20          # Safety limit for rounds in a single auction
-  bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
+################################################################################
+# ⚙️ COMMON ENVIRONMENT SETTINGS
+# These parameters define the core auction environment and are used across all phases.
+################################################################################
+environment:
+  # Top-level auction rules
+  auction:
+    start_price: 8000       # Start below reserve to allow rejection scenarios
+    max_rounds: 20          # Safety limit for rounds in a single auction
+    bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
 
-# Persona variation settings
-persona_variation:
-  enabled: true           # Set to false for completely deterministic personas
-  max_wtp_variance: 0.1  # ±10% variation in max willingness to pay
-  risk_aversion_variance: 0.20  # ±0.20 variation in risk aversion (0.0-1.0 scale)
-  ask_prob_variance: 0.10 # ±10% relative variation in ask probability
+  # Seller-specific parameters
+  seller:
+    reserve_price: 9800 # Private price below which the seller will not sell
 
-# Seller-specific parameters
-seller:
-  reserve_price: 9800 # Private price below which the seller will not sell
+  # Buyer persona definitions
+  # These are the base definitions used for heuristic policies and as the foundation for RL agents.
+  buyers:
+    # B1: Cautious and prefers small, safe steps. Avoids risk.
+    - id: B1_CONSERVATIVE_INVESTOR
+      max_wtp: 12000
+      risk_aversion: 0.9
+      ask_prob: 0.05
+    # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
+    - id: B2_AGGRESSIVE_TRADER
+      max_wtp: 15000
+      risk_aversion: 0.1
+      ask_prob: 0.0
+    # B3: Prefers to gather information before acting.
+    - id: B3_ANALYTICAL_BUYER
+      max_wtp: 14000
+      risk_aversion: 0.6
+      ask_prob: 0.85
+    # B4: Has a very strict budget and will not exceed it under any circumstances.
+    - id: B4_BUDGET_CONSCIOUS
+      max_wtp: 11500
+      risk_aversion: 0.8
+      ask_prob: 0.0
+    # B5: Prone to anxiety and bidding based on the actions of others.
+    - id: B5_FOMO_BIDDER
+      max_wtp: 13000
+      risk_aversion: 0.2
+      ask_prob: 0.0
 
-# Buyer persona definitions
-buyers:
-  # B1: Cautious and prefers small, safe steps. Avoids risk.
-  - id: B1_CONSERVATIVE_INVESTOR
-    max_wtp: 12000  # Max Willingness-To-Pay
-    # High aversion (0.0-1.0 scale). Prefers smaller bids and is more likely to fold.
-    risk_aversion: 0.9
-    # Low probability of asking a question each round.
-    ask_prob: 0.05
+################################################################################
+# 🎲 PHASE 0/1 SETTINGS (HEURISTIC & MONTE CARLO)
+# Settings for rule-based policies used in Phase 0 (Smoke Test) and Phase 1 (Monte Carlo).
+################################################################################
+phase1_heuristic_settings:
+  # Persona variation settings for Monte Carlo analysis
+  persona_variation:
+    enabled: true           # Set to false for completely deterministic personas
+    max_wtp_variance: 0.1  # ±10% variation in max willingness to pay
+    risk_aversion_variance: 0.20  # ±0.20 variation in risk aversion (0.0-1.0 scale)
+    ask_prob_variance: 0.10 # ±10% relative variation in ask probability
 
-  # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
-  - id: B2_AGGRESSIVE_TRADER
-    max_wtp: 15000
-    # Low aversion, prefers larger bids (1000) and bidding frequently.
-    risk_aversion: 0.1
-    ask_prob: 0.0
-
-  # B3: Prefers to gather information before acting.
-  - id: B3_ANALYTICAL_BUYER
-    max_wtp: 14000
-    # Moderate aversion, but heuristic policy will strongly favor asking questions first.
-    risk_aversion: 0.6
-    # Very high probability of using one of their actions to ask a question.
-    ask_prob: 0.85
-
-  # B4: Has a very strict budget and will not exceed it under any circumstances.
-  - id: B4_BUDGET_CONSCIOUS
-    max_wtp: 11500
-    # High aversion. The heuristic policy will force a 'fold' if price > max_wtp.
-    risk_aversion: 0.8
-    ask_prob: 0.0
-
-  # B5: Prone to anxiety and bidding based on the actions of others.
-  - id: B5_FOMO_BIDDER
-    max_wtp: 13000
-    # Low aversion. Heuristic policy will increase bid probability if many others are active.
-    risk_aversion: 0.2
-    ask_prob: 0.0 
+################################################################################
+# 🤖 PHASE 2 SETTINGS (REINFORCEMENT LEARNING)
+# Hyperparameters for the PPO algorithm used in Phase 2.
+################################################################################
+phase2_rl_settings:
+  gamma: 0.99           # Discount factor for future rewards
+  gae_lambda: 0.95      # Lambda for Generalized Advantage Estimation
+  lr: 0.0003            # Learning rate for the Adam optimizer
+  clip_epsilon: 0.2     # PPO clipping parameter
+  ppo_epochs: 10        # Number of epochs to train on the data per update
+  batch_size: 32        # Minibatch size for PPO updates
+  vf_coef: 0.5          # Value function loss coefficient
+  ent_coef: 0.01        # Entropy bonus coefficient (for exploration)
+  max_grad_norm: 0.5    # Maximum norm for gradient clipping
+  seed: 42              # Random seed for reproducibility 

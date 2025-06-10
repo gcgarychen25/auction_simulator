@@ -16,13 +16,26 @@ from typing import Dict, List, Any, Optional
 import yaml
 from pathlib import Path
 from datetime import datetime
+import logging
+
+from analytics_utils import (
+    setup_plot_style,
+    save_plot,
+    calculate_allocative_efficiency,
+    calculate_welfare_efficiency,
+    calculate_revenue_efficiency,
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
 def _generate_detailed_report(df, buyers, price_stats, avg_total_welfare, avg_seller_surplus, 
                             avg_buyer_surplus, seller_share, buyer_share, winner_counts, 
                             unique_prices, price_concentration, welfare_efficiency, 
                             allocative_efficiency, revenue_efficiency, highest_wtp_persona,
-                            reserve_price, results_file):
+                            reserve_price, results_file, output_dir: Path):
     """Generate a comprehensive markdown report analyzing each visualization and metric."""
     
     report_content = f"""# Phase 1 Monte Carlo Analysis Report
@@ -49,7 +62,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 1. 📊 Price Distribution Analysis
 
-![Price Distribution](plot1_price_distribution.png)
+![Price Distribution]({output_dir}/plot1_price_distribution.png)
 
 **What This Shows:** Histogram of final auction prices across all episodes, with mean price and reserve price marked.
 
@@ -68,7 +81,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 2. 🏆 Winner Distribution Analysis
 
-![Winner Distribution](plot2_winner_distribution.png)
+![Winner Distribution]({output_dir}/plot2_winner_distribution.png)
 
 **What This Shows:** Pie chart showing the percentage of auctions won by each buyer persona.
 
@@ -85,7 +98,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 3. 💰 Economic Surplus Distribution
 
-![Economic Surplus Distribution](plot3_surplus_distribution.png)
+![Economic Surplus Distribution]({output_dir}/plot3_surplus_distribution.png)
 
 **What This Shows:** Breakdown of total economic welfare between seller and winning buyers.
 
@@ -105,7 +118,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 4. ⏱️ Episode Length Distribution
 
-![Episode Length Distribution](plot4_episode_length.png)
+![Episode Length Distribution]({output_dir}/plot4_episode_length.png)
 
 **What This Shows:** Distribution of auction durations in rounds.
 
@@ -124,7 +137,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 5. 📈 Price Consistency Analysis
 
-![Price Consistency](plot5_price_consistency.png)
+![Price Consistency]({output_dir}/plot5_price_consistency.png)
 
 **What This Shows:** Final prices plotted against episode number to detect trends or patterns.
 
@@ -143,7 +156,7 @@ This report provides a comprehensive analysis of {len(df)} auction episodes usin
 
 ### 6. ⚡ Market Efficiency Metrics
 
-![Market Efficiency Metrics](plot6_efficiency_metrics.png)
+![Market Efficiency Metrics]({output_dir}/plot6_efficiency_metrics.png)
 
 **What This Shows:** Bar chart comparing three key efficiency measures.
 
@@ -525,36 +538,27 @@ def _describe_limitations(df, winner_variety):
     return " • ".join(limitations)
 
 
-def run_phase1_analysis(results_file: str = "phase1_results.csv", 
-                       config_file: str = "config.yaml",
-                       save_plots: bool = True) -> Dict[str, Any]:
-    """
-    Run complete Phase 1 analysis on batch simulation results.
-    
-    Args:
-        results_file: Path to CSV with simulation results
-        config_file: Path to configuration YAML
-        save_plots: Whether to save visualization plots
-        
-    Returns:
-        Complete analysis report dictionary
-    """
-    
-    print(f"📊 Running Phase 1 Analysis on {results_file}")
-    
-    # Load data
+def run_phase1_analysis(results_file: str, config_file: str, save_plots: bool = True):
+    """Main function to run all analyses for Phase 1."""
+    logger.info(f"📊 Running Phase 1 Analysis on {results_file}")
+    setup_plot_style()
+
+    # Load data and configuration
     df = pd.read_csv(results_file)
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    
-    # Extract buyer configurations for analysis
-    buyers = {buyer['id']: buyer for buyer in config['buyers']}
-    reserve_price = config['seller']['reserve_price']
-    start_price = config['auction']['start_price']
-    
-    print(f"⚙️  Configuration: {len(buyers)} buyers, reserve ${reserve_price:,}")
-    print(f"📈 Analyzing {len(df)} episodes")
-    
+
+    # Extract key values from the new config structure
+    env_config = config['environment']
+    buyers = {buyer['id']: buyer for buyer in env_config['buyers']}
+    reserve_price = env_config['seller']['reserve_price']
+    start_price = env_config['auction']['start_price']
+
+    # --- Generate Plots ---
+    output_dir = Path("phase1_analysis_plots")
+    if save_plots:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
     # Basic Statistics
     print("\n" + "="*60)
     print("📈 BASIC STATISTICS")
@@ -579,33 +583,41 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
     print("💎 ECONOMIC WELFARE ANALYSIS")
     print("="*60)
     
-    # Calculate buyer surplus for each episode
-    buyer_surplus_data = []
-    for _, row in df.iterrows():
-        winner_persona = row['winner_persona']
-        winner_surplus = row['total_surplus'] - row['seller_reward']
-        winner_max_wtp = buyers[winner_persona]['max_wtp']
+    # Calculate theoretical max surplus for each successful auction
+    def get_theoretical_max(row):
+        # Check for valid winner_persona before dictionary access
+        if pd.isna(row['winner_persona']):
+            return 0
+        winner_max_wtp = buyers[row['winner_persona']]['max_wtp']
+        return winner_max_wtp - reserve_price
+
+    df['theoretical_max_surplus'] = df.apply(get_theoretical_max, axis=1)
+    
+    # Calculate surplus efficiency for successful auctions
+    df['surplus_efficiency'] = df.apply(
+        lambda row: row['total_surplus'] / row['theoretical_max_surplus'] if row['theoretical_max_surplus'] > 0 else 0,
+        axis=1
+    )
+    
+    successful_auctions = df[df['auction_successful']].copy()
+    
+    if successful_auctions.empty:
+        return {
+            "summary": "No successful auctions to analyze.",
+            "mean_seller_surplus": 0,
+            "mean_winner_surplus": 0,
+            "mean_total_surplus": 0,
+            "mean_surplus_efficiency": 0
+        }
         
-        buyer_surplus_data.append({
-            'episode': row['episode'],
-            'winner': winner_persona,
-            'winner_surplus': winner_surplus,
-            'seller_surplus': row['seller_reward'],
-            'total_surplus': row['total_surplus']
-        })
+    avg_seller_surplus = successful_auctions['seller_reward'].mean()
+    avg_winner_surplus = successful_auctions['winner_surplus'].mean()
+    avg_total_surplus = successful_auctions['total_surplus'].mean()
+    avg_surplus_efficiency = successful_auctions['surplus_efficiency'].mean()
     
-    surplus_df = pd.DataFrame(buyer_surplus_data)
-    
-    avg_seller_surplus = surplus_df['seller_surplus'].mean()
-    avg_buyer_surplus = surplus_df['winner_surplus'].mean()
-    avg_total_welfare = surplus_df['total_surplus'].mean()
-    
-    seller_share = (avg_seller_surplus / avg_total_welfare) * 100
-    buyer_share = (avg_buyer_surplus / avg_total_welfare) * 100
-    
-    print(f"💰 Total Economic Welfare: ${avg_total_welfare:,.0f}")
-    print(f"🏛️  Seller Share: ${avg_seller_surplus:,.0f} ({seller_share:.1f}%)")
-    print(f"🛒 Buyer Share: ${avg_buyer_surplus:,.0f} ({buyer_share:.1f}%)")
+    print(f"💰 Total Economic Welfare: ${avg_total_surplus:,.0f}")
+    print(f"🏛️  Seller Share: ${avg_seller_surplus:,.0f} ({avg_seller_surplus/avg_total_surplus*100:.1f}%)")
+    print(f"🛒 Buyer Share: ${avg_winner_surplus:,.0f} ({avg_winner_surplus/avg_total_surplus*100:.1f}%)")
     
     # Market Patterns
     print("\n" + "="*60)
@@ -634,15 +646,11 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
     print("="*60)
     
     # Calculate efficiency metrics
-    max_possible_wtp = max(buyer['max_wtp'] for buyer in buyers.values())
-    theoretical_max_welfare = max_possible_wtp - reserve_price
-    
-    welfare_efficiency = avg_total_welfare / theoretical_max_welfare
+    welfare_efficiency = calculate_welfare_efficiency(df, buyers, reserve_price)
+    allocative_efficiency = calculate_allocative_efficiency(df, buyers)
+    revenue_efficiency = calculate_revenue_efficiency(df, buyers, reserve_price)
     
     highest_wtp_persona = max(buyers.items(), key=lambda x: x[1]['max_wtp'])[0]
-    allocative_efficiency = (df['winner_persona'] == highest_wtp_persona).mean()
-    
-    revenue_efficiency = avg_seller_surplus / (max_possible_wtp - reserve_price)
     
     print(f"💎 Welfare Efficiency: {welfare_efficiency:.3f} ({welfare_efficiency*100:.1f}%)")
     print(f"🎯 Allocative Efficiency: {allocative_efficiency:.3f} ({allocative_efficiency*100:.1f}%)")
@@ -655,8 +663,7 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         print("-" * 40)
         
         # Set up plotting style
-        plt.style.use('seaborn-v0_8-darkgrid')
-        sns.set_palette("husl")
+        setup_plot_style()
         
         plot_files = []
         
@@ -673,10 +680,8 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         plt.legend()
         plt.tight_layout()
         filename = 'plot1_price_distribution.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         # 2. Winner Distribution
         plt.figure(figsize=(8, 8))
@@ -687,24 +692,20 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         plt.title('Winner Distribution')
         plt.tight_layout()
         filename = 'plot2_winner_distribution.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         # 3. Surplus Breakdown
         plt.figure(figsize=(8, 8))
-        surplus_data = [avg_seller_surplus, avg_buyer_surplus]
+        surplus_data = [avg_seller_surplus, avg_winner_surplus]
         surplus_labels = ['Seller Surplus', 'Buyer Surplus']
         colors = ['lightcoral', 'lightblue']
         plt.pie(surplus_data, labels=surplus_labels, autopct='%1.1f%%', colors=colors, startangle=90)
         plt.title('Economic Surplus Distribution')
         plt.tight_layout()
         filename = 'plot3_surplus_distribution.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         # 4. Episode Length Distribution  
         plt.figure(figsize=(10, 6))
@@ -717,10 +718,8 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         plt.legend()
         plt.tight_layout()
         filename = 'plot4_episode_length.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         # 5. Price vs Episode (sample for large datasets)
         plt.figure(figsize=(12, 6))
@@ -740,10 +739,8 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         plt.legend()
         plt.tight_layout()
         filename = 'plot5_price_consistency.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         # 6. Efficiency Metrics
         plt.figure(figsize=(10, 6))
@@ -763,19 +760,17 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         
         plt.tight_layout()
         filename = 'plot6_efficiency_metrics.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
-        plot_files.append(filename)
-        print(f"📁 Saved: {filename}")
-        plt.close()
+        save_plot(output_dir, filename)
+        plot_files.append(output_dir / filename)
         
         print(f"✅ Generated {len(plot_files)} individual visualization files")
         
         # Generate detailed markdown report
-        _generate_detailed_report(df, buyers, price_stats, avg_total_welfare, avg_seller_surplus, 
-                                avg_buyer_surplus, seller_share, buyer_share, winner_counts, 
-                                unique_prices, price_concentration, welfare_efficiency, 
+        _generate_detailed_report(df, buyers, price_stats, avg_total_surplus, avg_seller_surplus, 
+                                avg_winner_surplus, avg_seller_surplus/avg_total_surplus*100, avg_winner_surplus/avg_total_surplus*100, 
+                                winner_counts, unique_prices, price_concentration, welfare_efficiency, 
                                 allocative_efficiency, revenue_efficiency, highest_wtp_persona,
-                                reserve_price, results_file)
+                                reserve_price, results_file, output_dir)
     
     # Final Summary
     print("\n" + "="*60)
@@ -790,7 +785,7 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
     print(f"\n💰 FINANCIAL SUMMARY:")
     print(f"   • Average Price: ${price_stats['mean_price']:,.0f}")
     print(f"   • Price Volatility: ${price_stats['std_price']:.0f}")
-    print(f"   • Total Economic Welfare: ${avg_total_welfare:,.0f}")
+    print(f"   • Total Economic Welfare: ${avg_total_surplus:,.0f}")
     
     print(f"\n⚡ EFFICIENCY METRICS:")
     print(f"   • Welfare Efficiency: {welfare_efficiency:.1%}")
@@ -802,7 +797,7 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
         print("   • Highly consistent pricing (low volatility)")
     if allocative_efficiency > 0.8:
         print("   • Efficient allocation (high-value buyers winning)")
-    if seller_share > 60:
+    if avg_seller_surplus/avg_total_surplus > 0.6:
         print("   • Seller-favorable surplus distribution")
     
     print("="*60)
@@ -810,11 +805,11 @@ def run_phase1_analysis(results_file: str = "phase1_results.csv",
     return {
         'price_statistics': price_stats,
         'welfare_metrics': {
-            'total_welfare': avg_total_welfare,
+            'total_welfare': avg_total_surplus,
             'seller_share': avg_seller_surplus,
-            'buyer_share': avg_buyer_surplus,
-            'seller_percentage': seller_share,
-            'buyer_percentage': buyer_share
+            'buyer_share': avg_winner_surplus,
+            'seller_percentage': avg_seller_surplus/avg_total_surplus*100,
+            'buyer_percentage': avg_winner_surplus/avg_total_surplus*100
         },
         'efficiency_metrics': {
             'welfare_efficiency': welfare_efficiency,
