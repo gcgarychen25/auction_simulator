@@ -26,6 +26,8 @@ import numpy as np
 from collections import deque
 from typing import Dict, List, Any, Tuple
 import logging
+from pathlib import Path
+import traceback
 
 from auction_env import AuctionEnv, load_config
 from llm_wrapper import LLMWrapper
@@ -49,7 +51,8 @@ class AuctionSimulator:
     Supports different policy types and can run single episodes or batch simulations.
     """
     
-    def __init__(self, config: Dict[str, Any], policy_type: str = "heuristic", use_llm_seller: bool = False):
+    def __init__(self, config: Dict[str, Any], policy_type: str = "heuristic", 
+                 use_llm_seller: bool = False, training_mode: bool = False):
         """
         Initialize the auction simulator.
         
@@ -57,10 +60,12 @@ class AuctionSimulator:
             config: Configuration dictionary
             policy_type: "heuristic" or "rl"
             use_llm_seller: Whether to use LLM for seller decisions
+            training_mode: Whether the simulation is for RL training
         """
         self.config = config
         self.policy_type = policy_type
         self.use_llm_seller = use_llm_seller
+        self.training_mode = training_mode
         
         # Initialize environment
         self.env = AuctionEnv(config)
@@ -68,10 +73,12 @@ class AuctionSimulator:
         # Initialize policies
         if policy_type == "heuristic":
             self.policies = create_heuristic_policies(config)
+            self.rl_manager = None
         elif policy_type == "rl":
-            self.rl_manager = RLPolicyManager(config)
-            # TODO: Load RL models from saved files
-            logger.warning("RL policies not fully implemented yet - using fallback behavior")
+            self.policies = None
+            self.rl_manager = RLPolicyManager(config, training_mode=self.training_mode)
+            if not training_mode:
+                self.rl_manager.load_models() # Load pre-trained models for evaluation
         else:
             raise ValueError(f"Unknown policy type: {policy_type}")
         
@@ -116,20 +123,30 @@ class AuctionSimulator:
                 logger.error(f"Error getting actions: {e}")
                 break
             
+            # Store observation for RL context before stepping
+            pre_step_observation = observation
+            
             # Step environment
             observation, rewards, terminated, truncated, info = self.env.step(actions)
             
+            # If training RL, record the results of the round for each agent
+            if self.policy_type == "rl" and self.training_mode:
+                self.rl_manager.record_round_results(terminated, truncated)
+
             # Enhanced round logging
             if verbose:
                 self._log_round_structured(round_count, observation, actions, seller_commentary, info)
             
-            # Log this round
+            # Log this round for analytics and potential RL training
             round_log = {
                 'round': round_count,
-                'price': float(observation['price'][0]),
-                'active_buyers': int(sum(observation['active_mask'])),
+                'observation': pre_step_observation, # State when action was taken
                 'actions': actions,
                 'rewards': rewards,
+                'info': info,
+                # Redundant flattened data for easier CSV analysis
+                'price': float(observation['price'][0]),
+                'active_buyers': int(sum(observation['active_mask'])),
                 'terminated': terminated,
                 'truncated': truncated,
                 'seller_response': seller_commentary,
@@ -155,6 +172,10 @@ class AuctionSimulator:
                 logger.warning("Episode exceeded 50 rounds, terminating")
                 break
         
+        # For RL training, update policies at the end of the episode
+        if self.policy_type == "rl" and self.training_mode:
+            self.rl_manager.finalize_episode_and_update(info, rewards)
+
         # Calculate final results
         results = self._calculate_episode_results(episode_log, rewards, info)
         
@@ -265,6 +286,11 @@ class AuctionSimulator:
     
     async def _get_seller_action(self, observation: Dict, info: Dict) -> Tuple[int, str]:
         """Get action from seller with smart LLM usage."""
+        # Use RL manager for seller action if in RL mode (and not using LLM)
+        if self.policy_type == "rl" and not self.use_llm_seller:
+            action = self.rl_manager.get_seller_action(observation, info)
+            return action, "RL (heuristic) seller decision"
+
         questions = info.get('questions', [])
         current_price = observation['price'][0]
         active_buyers = sum(observation['active_mask'])
@@ -306,7 +332,8 @@ class AuctionSimulator:
                 action = self.policies['seller'].get_seller_action(observation, info)
                 return action, "Heuristic seller decision"
             else:
-                action = self.rl_manager.get_seller_action(observation)
+                # This case is now handled at the top of the function
+                action = self.rl_manager.get_seller_action(observation, info)
                 return action, "RL seller decision"
     
     async def _get_buyer_actions(self, observation: Dict, info: Dict) -> List[int]:
@@ -428,8 +455,12 @@ Answer the questions directly and concisely:"""
             winner_surplus = final_rewards['buyers'][winner]
             total_surplus = seller_surplus + winner_surplus
             
-            # Winner value metrics
-            winner_max_wtp = self.config['buyers'][winner]['max_wtp']
+            # Winner value metrics (use episode-specific WTP if available)
+            if 'varied_personas' in info:
+                winner_max_wtp = info['varied_personas'][winner]['max_wtp']
+            else:
+                winner_max_wtp = self.config['buyers'][winner]['max_wtp']
+
             winner_surplus_ratio = winner_surplus / winner_max_wtp if winner_max_wtp > 0 else 0
             
             # Market efficiency metrics
@@ -634,98 +665,160 @@ def save_results_to_csv(results: List[Dict[str, Any]], filename: str):
     logger.info(f"Results saved to {filename}")
 
 
+async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: int, num_eval_episodes: int):
+    """Orchestrates the full RL training and evaluation pipeline."""
+    logger.info("="*60)
+    logger.info("🤖 STARTING PHASE 2: RL AGENT TRAINING & EVALUATION 🤖")
+    logger.info("="*60)
+    
+    config = load_config(config_path)
+    
+    # --- 1. Training Phase ---
+    logger.info(f"\n--- 🏋️ TRAINING FOR {num_training_episodes} EPISODES ---")
+    training_simulator = AuctionSimulator(config, policy_type="rl", training_mode=True)
+    start_time = time.time()
+    
+    for episode_id in range(num_training_episodes):
+        if (episode_id + 1) % 50 == 0:
+            elapsed = time.time() - start_time
+            logger.info(f"Training Episode {episode_id + 1}/{num_training_episodes} (elapsed: {elapsed:.1f}s)")
+        
+        await training_simulator.run_episode(episode_id, verbose=False)
+
+    total_training_time = time.time() - start_time
+    logger.info(f"✅ Training complete in {total_training_time:.1f}s")
+
+    # Save trained models and history
+    training_simulator.rl_manager.save_models()
+    training_simulator.rl_manager.save_training_history()
+
+    # --- 2. Evaluation Phase ---
+    logger.info(f"\n--- 📊 EVALUATING FOR {num_eval_episodes} EPISODES ---")
+    # New simulator instance with trained models loaded (training_mode=False)
+    eval_simulator = AuctionSimulator(config, policy_type="rl", training_mode=False)
+    
+    eval_results = []
+    for episode_id in range(num_eval_episodes):
+        if (episode_id + 1) % 50 == 0:
+            logger.info(f"Evaluation Episode {episode_id + 1}/{num_eval_episodes}")
+        
+        result = await eval_simulator.run_episode(episode_id, verbose=False)
+        eval_results.append(result)
+        
+    # Save evaluation results to CSV for analysis
+    output_file = "phase2_rl_results.csv"
+    save_results_to_csv(eval_results, output_file)
+    logger.info(f"📈 Evaluation results saved to {output_file}")
+    logger.info("="*60)
+
+    return output_file
+
+
 async def main():
     """Main entry point with CLI argument parsing."""
-    parser = argparse.ArgumentParser(description="Real Estate Auction Simulator")
-    parser.add_argument("--config", default="config.yaml", help="Path to configuration file")
-    parser.add_argument("--policy", choices=["heuristic", "rl"], default="heuristic", 
-                       help="Policy type to use")
-    parser.add_argument("--episodes", type=int, default=1, help="Number of episodes to run")
-    parser.add_argument("--output", default="results.csv", help="Output CSV file for batch results")
-    parser.add_argument("--llm-seller", action="store_true", help="Use LLM for seller decisions")
-    parser.add_argument("--verbose", action="store_true", default=True, help="Verbose output")
-    parser.add_argument("--phase1", action="store_true", help="Run Phase 1 Monte Carlo analysis (auto-runs with 10+ episodes)")
-    parser.add_argument("--no-analysis", action="store_true", help="Skip automatic Phase 1 analysis for batch runs")
+    parser = argparse.ArgumentParser(
+        description="Multi-Agent Real-Estate Auction Simulator",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
     
+    # Core Phase-based argument
+    parser.add_argument(
+        "--phase", 
+        type=int, 
+        choices=[0, 1, 2], 
+        required=True,
+        help="""Specify the project phase to run:
+  - 0: Smoke Test (1 heuristic episode)
+  - 1: Monte Carlo (batch run with heuristic policies)
+  - 2: Reinforcement Learning (train and evaluate RL policies)"""
+    )
+    
+    # Phase-specific arguments
+    parser.add_argument("--episodes", type=int, default=10000, help="Number of episodes for Phase 1 Monte Carlo runs.")
+    parser.add_argument("--train-episodes", type=int, default=1000, help="Number of training episodes for Phase 2.")
+    parser.add_argument("--eval-episodes", type=int, default=200, help="Number of evaluation episodes for Phase 2.")
+
+    # General configuration
+    parser.add_argument("--config", default="config.yaml", help="Path to configuration file.")
+    parser.add_argument("--output", default="phase1_results.csv", help="Output CSV file for Phase 1 results.")
+    parser.add_argument("--llm-seller", action="store_true", help="Use LLM for seller decisions (primarily for Phase 0).")
+    parser.add_argument("--no-analysis", action="store_true", help="Skip the automatic analysis report generation for Phase 1 or 2.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging for detailed round-by-round output.")
+
     args = parser.parse_args()
     
-    if args.episodes == 1:
-        # Single episode
-        result = await run_single_episode(
+    # --- Phase 0: Smoke Test ---
+    if args.phase == 0:
+        logger.info("🚀 Running Phase 0: Smoke Test (1 heuristic episode)")
+        await run_single_episode(
             config_path=args.config,
-            policy_type=args.policy,
+            policy_type="heuristic",
             use_llm_seller=args.llm_seller,
-            verbose=args.verbose
+            verbose=True  # Always verbose for smoke test
         )
-        logger.info("\n✅ Single episode completed successfully")
-    else:
-        # Batch episodes
+        logger.info("\n✅ Phase 0 smoke test completed successfully.")
+    
+    # --- Phase 1: Monte Carlo Analysis ---
+    elif args.phase == 1:
+        logger.info(f"🚀 Running Phase 1: Monte Carlo Analysis ({args.episodes} episodes)")
         results = await run_batch_episodes(
             config_path=args.config,
-            policy_type=args.policy,
+            policy_type="heuristic",
             num_episodes=args.episodes,
             output_file=args.output
         )
         
-        # Print enhanced summary statistics
-        successful_auctions = sum(1 for r in results if r['auction_successful'])
-        failed_auctions = len(results) - successful_auctions
-        
-        # Calculate averages for successful auctions only
-        successful_results = [r for r in results if r['auction_successful']]
-        if successful_results:
-            avg_price = np.mean([r['final_price'] for r in successful_results])
-            avg_surplus = np.mean([r['total_surplus'] for r in successful_results])
-            avg_surplus_efficiency = np.mean([r['surplus_efficiency'] for r in successful_results])
-        else:
-            avg_price = 0
-            avg_surplus = 0
-            avg_surplus_efficiency = 0
-        
-        # Categorize failure reasons
-        failure_reasons = {}
-        for r in results:
-            if not r['auction_successful']:
-                reason = r.get('failure_reason', 'unknown')
-                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
-        
-        logger.info(f"BATCH SUMMARY:")
-        logger.info(f"✅ Successful auctions: {successful_auctions}/{len(results)} ({100*successful_auctions/len(results):.1f}%)")
-        
-        if failed_auctions > 0:
-            logger.info(f"❌ Failed auctions: {failed_auctions} ({100*failed_auctions/len(results):.1f}%)")
-            for reason, count in failure_reasons.items():
-                logger.info(f"   • {reason}: {count}")
-        
-        if successful_results:
-            logger.info(f"💰 Average final price: ${avg_price:,.0f}")
-            logger.info(f"💎 Average total surplus: ${avg_surplus:,.0f}")
-            logger.info(f"⚡ Average surplus efficiency: {avg_surplus_efficiency:.1%}")
-        else:
-            logger.info(f"💰 No successful auctions to analyze")
-        
-        # Automatically run Phase 1 analysis for batch runs with 10+ episodes
-        should_run_analysis = (
-            (args.phase1) or 
-            (args.episodes >= 10 and not args.no_analysis)
-        )
-        
-        if should_run_analysis:
-            logger.info(f"\n🔍 Running Phase 1 Monte Carlo Analysis...")
+        if not args.no_analysis:
+            logger.info(f"\n🔍 Running Phase 1 Analysis...")
             try:
                 from phase1_analytics import run_phase1_analysis
-                report = run_phase1_analysis(args.output, args.config, save_plots=True)
-                logger.info(f"📊 Phase 1 analysis complete! Results saved and visualized.")
+                run_phase1_analysis(args.output, args.config, save_plots=True)
+                logger.info(f"📊 Phase 1 analysis complete! Report and plots generated.")
             except ImportError:
-                logger.warning(f"⚠️  Phase 1 analytics module not found. Skipping analysis.")
+                logger.warning("⚠️ phase1_analytics.py not found. Skipping analysis.")
             except Exception as e:
-                logger.error(f"❌ Error running Phase 1 analysis: {e}")
-        
-        elif args.episodes >= 10:
-            logger.info(f"\n💡 Tip: Run Phase 1 analysis with: python phase1_analytics.py {args.output}")
-            logger.info(f"📊 Or use --phase1 flag for automatic analysis")
+                logger.error(f"❌ Error running Phase 1 analysis: {e}", exc_info=True)
+        else:
+            logger.info("✅ Phase 1 data generation complete. Analysis skipped as requested.")
+
+    # --- Phase 2: Reinforcement Learning ---
+    elif args.phase == 2:
+        logger.info("🚀 Running Phase 2: Reinforcement Learning Pipeline")
+        try:
+            eval_results_file = await train_and_evaluate_rl_agents(
+                config_path=args.config,
+                num_training_episodes=args.train_episodes,
+                num_eval_episodes=args.eval_episodes
+            )
+            logger.info("\n✅ RL training and evaluation pipeline complete.")
+            
+            if not args.no_analysis:
+                logger.info(f"\n🔍 Running Phase 2 RL Analysis...")
+                from phase2_analytics import run_phase2_analysis
+                
+                baseline_file = "phase1_results.csv"
+                if not Path(baseline_file).exists():
+                    logger.warning(f"⚠️ Baseline file '{baseline_file}' not found. Analytics will run without comparison.")
+                    baseline_file = None
+
+                run_phase2_analysis(
+                    rl_results_file=eval_results_file, 
+                    baseline_results_file=baseline_file, 
+                    save_plots=True,
+                    num_training_episodes=args.train_episodes
+                )
+                logger.info(f"📊 Phase 2 analysis complete! Report and plots generated.")
+            else:
+                logger.info("✅ Phase 2 training complete. Analysis skipped as requested.")
+
+        except Exception as e:
+            logger.error(f"❌ An error occurred during the RL pipeline: {e}")
+            logger.error(traceback.format_exc())
 
 
 if __name__ == "__main__":
     import numpy as np  # Import here to avoid dependency issues
+    # Ensure policies directory is in path
+    import sys
+    sys.path.append(os.path.dirname(__file__))
     asyncio.run(main()) 
