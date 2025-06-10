@@ -298,12 +298,13 @@ class RLPolicyManager:
             return
 
         for i, policy in enumerate(self.policies):
-            model_path = path / f"buyer_{i}_policy.pth"
+            # Use the same naming pattern as save_models to locate checkpoints
+            model_path = path / f"buyer_{i}_policy_{self.buyers[i]['id']}.pth"
             if model_path.exists():
                 policy.load_state_dict(torch.load(model_path, map_location=self.device))
-                policy.eval() # Set to evaluation mode
+                policy.eval()  # Set to evaluation mode
             else:
-                 logger.warning(f"⚠️  Model for buyer {i} not found at {model_path}")
+                logger.warning(f"⚠️  Model for buyer {i} not found at {model_path}")
         logger.info(f"✅ Models loaded from {directory}")
 
     def save_training_history(self, directory: str = "rl_models"):
