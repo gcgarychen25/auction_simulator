@@ -67,11 +67,6 @@ auction_simulator/
 └── reports/               # Generated analysis reports
 ```
 
-## 📈 Results
-
-- **Phase 1 Baseline**: $13K price, $5.2K surplus, 100% efficiency
-- **Phase 2 RL**: Cooperative multi-agent training with persona-aware rewards
-- **Full Pipeline**: Smoke test → Baseline → RL training → Comparative analysis
 
 ---
 
