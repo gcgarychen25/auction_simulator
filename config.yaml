@@ -29,26 +29,31 @@ environment:
       max_wtp: 12000
       risk_aversion: 0.9
       ask_prob: 0.05
+      requirements: "Wants a move-in ready property with no major repairs needed. Particularly concerned about foundation issues mentioned in the description."
     # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
     - id: B2_AGGRESSIVE_TRADER
       max_wtp: 15000
       risk_aversion: 0.1
       ask_prob: 0.0
+      requirements: "Primarily interested in resale value. Less concerned with minor cosmetic issues, but wants to know about anything that could affect a quick flip, like the foundation."
     # B3: Prefers to gather information before acting.
     - id: B3_ANALYTICAL_BUYER
       max_wtp: 14000
       risk_aversion: 0.6
       ask_prob: 0.85
+      requirements: "Needs to see all inspection reports and understand any potential liabilities. Will ask specific questions about the foundation settling mentioned."
     # B4: Has a very strict budget and will not exceed it under any circumstances.
     - id: B4_BUDGET_CONSCIOUS
       max_wtp: 11500
       risk_aversion: 0.8
       ask_prob: 0.0
+      requirements: "Looking for a good deal. Wants to know about potential upcoming maintenance costs, especially related to the foundation, that could impact their budget."
     # B5: Prone to anxiety and bidding based on the actions of others.
     - id: B5_FOMO_BIDDER
       max_wtp: 13000
       risk_aversion: 0.2
       ask_prob: 0.0
+      requirements: "Easily swayed by property highlights like the 'newly renovated kitchen'. Wants reassurance that the foundation issue is not a major problem."
 
 ################################################################################
 # 🎲 PHASE 0/1 SETTINGS (HEURISTIC & MONTE CARLO)
