@@ -343,3 +343,16 @@ class RLPolicyManager:
         
         # Otherwise, just continue.
         return 0 # Announce next round 
+
+    def update_config(self, new_config: Dict[str, Any]):
+        """
+        Updates the manager's configuration.
+        This is crucial when the environment changes between episodes during training.
+        """
+        self.config = new_config
+
+    def _initialize_policies(self) -> Dict[str, nn.Module]:
+        """Initializes the neural network policies for all agents."""
+        policies = {}
+        # Assuming obs_size and action_size can be determined from config
+        # ... existing code ... 

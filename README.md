@@ -25,13 +25,13 @@ Single episode smoke test to validate core functionality.
 
 ### Phase 1: Monte Carlo Baseline  
 ```bash
-python run.py --phase 1 --episodes 100
+python run.py --phase 1 --episodes 100 --output phase1_results.csv
 ```
 Statistical baseline with comprehensive analytics. Generates `reports/phase1_analysis.md`.
 
 ### Phase 2: Reinforcement Learning
 ```bash
-python run.py --phase 2 --train-episodes 1000 --eval-episodes 200
+python run.py --phase 2 --episodes 100 --training-steps 1000 --output phase2_results.csv
 ```
 PPO training and RL vs heuristic comparison. Generates `reports/phase2_analysis.md`.
 

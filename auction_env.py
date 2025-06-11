@@ -37,6 +37,9 @@ class AuctionEnv(gym.Env):
         self.bid_limit = env_config['auction']['bid_limit_per_buyer']
         self.reserve_price = env_config['seller']['reserve_price']
         
+        # Property Information
+        self.property_info = env_config.get('property', {})
+        
         # Buyer configurations
         self.num_buyers = len(env_config['buyers'])
         self.base_buyers_config = env_config['buyers']
@@ -95,6 +98,7 @@ class AuctionEnv(gym.Env):
         self.bids_left = np.array([self.bid_limit] * self.num_buyers, dtype=np.int32)
         self.active_mask = np.ones(self.num_buyers, dtype=np.int32)
         self.last_increment = 0.0
+        self.leading_bidder = -1 # Initialize to -1 (no bidder)
         self.winner = None
         self.final_price = None
         self.auction_ended = False
@@ -296,6 +300,10 @@ class AuctionEnv(gym.Env):
                     varied_buyer[variation] = config.get(buyer[variation], buyer[variation])
             varied_buyers.append(varied_buyer)
         return varied_buyers
+
+    def get_property_info(self) -> Dict[str, Any]:
+        """Returns the property information dictionary."""
+        return self.property_info
 
 
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:

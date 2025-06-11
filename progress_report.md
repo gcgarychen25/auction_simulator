@@ -2,19 +2,20 @@
 
 **Date:** 2024-07-25
 
-**Status:** Phase 1 (Monte Carlo) complete, Phase 2 (Reinforcement Learning) scaffolded.
+**Status:** Phase 1 (Monte Carlo) complete, Phase 2 (RL) scaffolded, Phase 3 (Multi-Agent LLM) implemented.
 
 ---
 
 ## 📝 Executive Summary
 
-This report outlines the current state of the Auction Simulator project, as orchestrated by the main execution script, `run.py`. The project is structured into three distinct phases, each with a specific goal, from initial testing to advanced reinforcement learning.
+This report outlines the current state of the Auction Simulator project, as orchestrated by the main execution script, `run.py`. The project is structured into four distinct phases, each with a specific goal, from initial testing to advanced multi-agent simulation.
 
-- **Phase 0 (Smoke Test):** Validates the core auction environment and heuristic policies by running a single, detailed episode.
+- **Phase 0 (Smoke Test):** Validates the legacy `AuctionSimulator` and heuristic policies by running a single, detailed episode. This provides a quick check that the environment for baseline and RL testing is functional.
 - **Phase 1 (Monte Carlo Analysis):** Establishes a performance baseline by running thousands of simulations with rule-based (heuristic) agents and generating a detailed analytics report.
 - **Phase 2 (Reinforcement Learning):** Focuses on training and evaluating intelligent agents to optimize auction strategies, comparing their performance against the Phase 1 baseline.
+- **Phase 3 (LLM Multi-Agent Simulation):** The most advanced stage, which runs a full auction using a modern, robust multi-agent architecture where buyer agents are powered by LLMs and orchestrated in parallel.
 
-The system is designed with a modular architecture, separating the environment (`auction_env.py`), policies (`policies/`), and analytics (`phase1_analytics.py`, `phase2_analytics.py`). This structure facilitates independent development and clear, phase-gated progress. Recent efforts have focused on cleaning the codebase by removing redundant scripts and significantly refactoring the Phase 2 RL training logic to promote healthier agent competition and enable robust mid-training evaluation.
+The system has undergone a significant architectural refactoring, replacing a brittle custom orchestrator with a clean, "agent-as-tool" pattern for Phase 3, which is now the primary focus for intelligent agent simulation.
 
 ---
 
@@ -25,50 +26,39 @@ The project follows a modular design that separates the core components, facilit
 ```mermaid
 graph TD;
     subgraph "run.py (Main Script)"
-        A["main()"] --> B("Run Episode");
+        A["main()"] --> B("Run Phase");
     end
 
-    subgraph "simulator.py (Orchestrator)"
-        B --> C["AuctionSimulator"];
-        C --> D{"Initialize Policies"};
-        C --> E{"Run Episode Loop"};
-    end
-    
-    subgraph "policies/*.py (Agent Brains)"
-        D --> P["Heuristic / RL Policies"];
+    subgraph "Legacy Simulator (Phase 0, 1, 2)"
+        B -- "Phases 0, 1, 2" --> C["simulator.py"];
+        C --> P1["policies/heuristic.py"];
+        C --> P2["policies/rl_policy.py"];
+        C --> F["auction_env.py"];
     end
 
-    subgraph "auction_env.py (Environment)"
-        C --> F["AuctionEnv"];
+    subgraph "Modern Orchestrator (Phase 3)"
+        B -- "Phase 3" --> D["multi_agent_orchestrator.py"];
+        D --> E["LangChain (LLM Agents)"];
     end
-
-    E -- "1. Get Actions" --> P;
-    P -- "2. Return Actions" --> E;
-    E -- "3. env.step(actions)" --> F;
-    F -- "4. Return new state" --> E;
 
     style A fill:#e6f3ff,stroke:#333,stroke-width:2px
     style B fill:#e6f3ff,stroke:#333,stroke-width:2px
     style C fill:#d5f5e3,stroke:#333,stroke-width:2px
-    style D fill:#d5f5e3,stroke:#333,stroke-width:2px
-    style E fill:#d5f5e3,stroke:#333,stroke-width:2px
-    style P fill:#fff0e6,stroke:#333,stroke-width:2px
-    style F fill:#fdebd0,stroke:#333,stroke-width:2px
+    style D fill:#cde4f2,stroke:#333,stroke-width:2px
 ```
 
--   **`run.py`**: The entry point that orchestrates the entire process based on user-provided arguments (e.g., `--phase`).
--   **`simulator.py`**: Contains the `AuctionSimulator` class, which acts as the "game master." It initializes the environment and policies, runs the episode loop, and collects data.
--   **`auction_env.py`**: Defines the `AuctionEnv` class, which is the "game board." It manages the rules of the auction, the state (price, bidders), and processes actions.
--   **`policies/`**: This directory holds the "brains" of the agents, defining *how* they decide on actions. This can be rule-based (`heuristic.py`) or learned (`rl_policy.py`).
+-   **`run.py`**: The entry point that orchestrates the entire process based on the user-provided `--phase` argument.
+-   **`simulator.py` / `auction_env.py`**: The legacy simulator and environment, used for generating the heuristic baseline (Phase 1) and training RL agents (Phase 2).
+-   **`multi_agent_orchestrator.py`**: The modern, "agent-as-tool" orchestrator that runs the LLM-powered multi-agent simulation for Phase 3.
 
-This clear separation of concerns was recently improved by decoupling the `AuctionSimulator` from `run.py` into its own `simulator.py` module, enhancing modularity and maintainability.
+This clear separation of concerns allows for the stable legacy code to be used for baseline comparisons while new development is focused on the modern Phase 3 architecture.
 
 ---
 
 ## Phase 0: 💨 Smoke Test
 
 ### Purpose
-The primary goal of Phase 0 is to provide a quick, verifiable test of the end-to-end simulation logic. It runs a single auction episode with verbose, round-by-round output to ensure that the environment, agent interactions, and basic auction mechanics are functioning correctly.
+The primary goal of Phase 0 is to provide a quick, verifiable test of the legacy end-to-end simulation logic. It runs a single auction episode with verbose, round-by-round output using the same `AuctionSimulator` that Phases 1 and 2 rely on. This ensures that the environment for creating a baseline and training RL agents is functioning correctly.
 
 ### Code Logic
 - **Trigger:** Executed by running `python run.py --phase 0`.
@@ -77,13 +67,12 @@ The primary goal of Phase 0 is to provide a quick, verifiable test of the end-to
     1.  An `AuctionSimulator` instance is created with `policy_type="heuristic"`.
     2.  The `run_episode()` method is invoked with `verbose=True`, printing detailed logs for each round.
     3.  The simulation uses the pre-defined `HeuristicPolicy` for all buyer agents and the seller.
-    4.  An optional `--llm-seller` flag allows for testing the `LLMWrapper` for seller commentary, demonstrating integration with external language models.
 
 ### Relevant Scripts & Components
-- **`run.py`:** The main entry point that parses the `--phase 0` argument and calls the appropriate function.
-- **`auction_env.py`:** Defines the `AuctionEnv` class, which manages the state of the auction (price, bidders, rules).
-- **`policies/heuristic.py`:** Contains the rule-based logic for buyer and seller agents, defining the baseline behavior.
-- **`llm_wrapper.py` (Optional):** Used if the `--llm-seller` flag is active to generate dynamic seller text.
+- **`run.py`:** The main entry point that parses the `--phase 0` argument.
+- **`simulator.py`:** Contains the legacy `AuctionSimulator` class.
+- **`auction_env.py`:** Defines the `AuctionEnv` class, which manages the auction state.
+- **`policies/heuristic.py`:** Contains the rule-based logic for the test.
 
 ---
 
@@ -149,4 +138,58 @@ Phase 2 is the advanced stage where we develop, train, and evaluate intelligent 
 ### Relevant Scripts & Components
 - **`run.py`:** Orchestrates the entire training and evaluation pipeline.
 - **`policies/rl_policy.py`:** Contains the `RLPolicyManager`, which is the brain of the RL operation. It manages the `ActorCritic` models, experience memory, reward shaping, GAE calculation, and the PPO update logic for all agents.
-- **`phase2_analytics.py`:** A dedicated script for analyzing the performance of the trained RL agents, often by directly comparing `phase2_rl_results.csv` with `phase1_results.csv`. 
+- **`phase2_analytics.py`:** A dedicated script for analyzing the performance of the trained RL agents, often by directly comparing `phase2_rl_results.csv` with `phase1_results.csv`.
+
+---
+
+## Phase 3: 🤖 LLM Multi-Agent Simulation
+
+### Purpose
+Phase 3 is the advanced stage where we run the auction using a modern **multi-agent orchestration architecture**. The goal is to simulate a realistic auction environment where multiple LLM-powered buyer agents act in parallel, orchestrated by a central controller. This uses the robust "agent-as-tool" pattern, ensuring the core components of state management, agent invocation, and parallel execution are functioning correctly.
+
+### Code Logic
+- **Trigger:** Executed by running `python run.py --phase 3`.
+- **Core Function:** `run_auction_episode()` from `multi_agent_orchestrator.py` is called.
+- **Process:**
+    1.  An `AuctionState` object is initialized to manage the auction's state (price, bidders, history).
+    2.  A specialized LangChain agent (a "runnable") is created for each buyer persona defined in `config.yaml`.
+    3.  The orchestrator enters a loop that continues until the auction ends (e.g., no active bidders or max rounds reached).
+    4.  Inside the loop, it invokes all active buyer agents **in parallel** using `asyncio.gather()`. Each agent receives the current `AuctionState` and its unique persona.
+    5.  The orchestrator collects the structured `Action` objects from each agent's response.
+    6.  It processes these actions to update the `AuctionState`—determining the new high bid, the leading bidder, and which buyers have folded.
+    7.  The loop repeats until a winner is decided or the auction fails, at which point a final summary is printed.
+
+### Architecture & Relevant Scripts
+The new architecture is cleaner and more aligned with modern multi-agent design patterns.
+
+```mermaid
+graph TD;
+    subgraph "run.py (Entry Point)"
+        A["main() --phase 3"] --> B["run_auction_episode()"];
+    end
+
+    subgraph "multi_agent_orchestrator.py (Orchestrator)"
+        B --> C{"Auction Loop"};
+        C --> D["Manage AuctionState"];
+        C --> E{"Invoke Buyer Agents (in parallel)"};
+    end
+    
+    subgraph "LangChain (LLM Abstraction)"
+        E --> F["LLM (Gemini via ChatGoogleGenerativeAI)"];
+    end
+
+    F -- "Return Actions" --> E;
+    E -- "Update State" --> D;
+
+    style A fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style B fill:#d5f5e3,stroke:#333,stroke-width:2px
+    style C fill:#d5f5e3,stroke:#333,stroke-width:2px
+    style D fill:#fff0e6,stroke:#333,stroke-width:2px
+    style E fill:#d5f5e3,stroke:#333,stroke-width:2px
+    style F fill:#fdebd0,stroke:#333,stroke-width:2px
+```
+
+- **`run.py`**: The main entry point. For Phase 3, it simply loads the configuration and calls the new orchestrator.
+- **`multi_agent_orchestrator.py`**: This is the most important new script. It contains the `AuctionState` class for managing state, the logic for creating buyer agents, and the `run_auction_episode` function that orchestrates the entire auction loop.
+- **`langchain_google_genai`**: This library is now used to create and invoke the LLM agents, providing a robust, managed connection to the Gemini API.
+- **`config.yaml`**: Remains crucial for defining the auction rules and buyer personas that are fed to the agents. 

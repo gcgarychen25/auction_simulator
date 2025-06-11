@@ -121,7 +121,7 @@ Implements the auction dynamics within a `AuctionEnv` class that inherits from `
 
 | **Action Space** | Values | Description |
 |:---|:---|:---|
-| **Buyer Action** | `[0, 1, 2, 3]` | `0`: fold, `1`: bid 50k, `2`: bid 100k, `3`: ask question |
+| **Buyer Action** | `[0, 1, 2, 3]` | `0`: fold, `1`: bid 500, `2`: bid 1000, `3`: ask question |
 | **Seller Action**| `[0, 1, 2]` | `0`: announce next round, `1`: answer question, `2`: close auction |
 
 #### **Reward Calculation**

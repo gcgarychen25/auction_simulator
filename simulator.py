@@ -2,7 +2,7 @@
 Core Auction Simulator
 
 Defines the main AuctionSimulator class that orchestrates auction episodes,
-managing agent interactions, and the environment loop.
+managing agent interactions, and the environment loop for heuristic and RL policies.
 """
 
 import asyncio
@@ -12,7 +12,6 @@ from typing import Dict, List, Any, Tuple
 import logging
 
 from auction_env import AuctionEnv
-from llm_wrapper import LLMWrapper
 from policies.heuristic import create_heuristic_policies
 from policies.rl_policy import RLPolicyManager
 
@@ -23,23 +22,21 @@ class AuctionSimulator:
     """
     Main simulator class that orchestrates auction episodes.
     
-    Supports different policy types and can run single episodes or batch simulations.
+    Supports "heuristic" and "rl" policy types for baseline and training purposes.
     """
     
-    def __init__(self, config: Dict[str, Any], policy_type: str = "heuristic", 
-                 use_llm_seller: bool = False, training_mode: bool = False):
+    def __init__(self, config: Dict[str, Any], policy_type: str = "heuristic", training_mode: bool = False, rl_manager: RLPolicyManager = None):
         """
         Initialize the auction simulator.
         
         Args:
             config: Configuration dictionary
             policy_type: "heuristic" or "rl"
-            use_llm_seller: Whether to use LLM for seller decisions
             training_mode: Whether the simulation is for RL training
+            rl_manager: (Optional) An existing RLPolicyManager to use. If not provided, a new one is created for RL mode.
         """
         self.config = config
         self.policy_type = policy_type
-        self.use_llm_seller = use_llm_seller
         self.training_mode = training_mode
         
         # Initialize environment
@@ -51,16 +48,17 @@ class AuctionSimulator:
             self.rl_manager = None
         elif policy_type == "rl":
             self.policies = None
-            self.rl_manager = RLPolicyManager(config, training_mode=self.training_mode)
-            if not training_mode:
-                self.rl_manager.load_models() # Load pre-trained models for evaluation
+            if rl_manager:
+                self.rl_manager = rl_manager
+                # Critical: Update the manager's config to the one for this specific simulator instance
+                self.rl_manager.update_config(config)
+            else:
+                self.rl_manager = RLPolicyManager(config, training_mode=self.training_mode)
+            
+            if not training_mode and not rl_manager: # Only load models if evaluating from scratch
+                self.rl_manager.load_models()
         else:
             raise ValueError(f"Unknown policy type: {policy_type}")
-        
-        # Initialize LLM wrapper if needed
-        self.llm_wrapper = None
-        if use_llm_seller:
-            self.llm_wrapper = LLMWrapper()
         
         # History for context (last 10 rounds)
         self.history = deque(maxlen=10)
@@ -126,8 +124,17 @@ class AuctionSimulator:
                 'truncated': truncated,
                 'seller_response': seller_commentary,
                 'new_bids': info.get('new_bids', []),
-                'questions': info.get('questions', [])
+                'questions': info.get('questions', []),
+                'q_and_a': [] # To be populated with conversation
             }
+            # Add Q&A to the log
+            if 'questions' in info and info['questions']:
+                # This assumes seller response is a direct answer
+                round_log['q_and_a'].append({
+                    "speaker": "Seller",
+                    "message": seller_commentary
+                })
+
             episode_log.append(round_log)
             
             # Add to history for LLM context
@@ -161,7 +168,7 @@ class AuctionSimulator:
     
     def _log_episode_start(self, episode_id: int):
         """Log a clean episode start banner."""
-        policy_type = "LLM-Enhanced" if self.use_llm_seller else "Heuristic"
+        policy_type = "RL" if self.policy_type == "rl" else "Heuristic"
         logger.info("")
         logger.info("🚀" + "=" * 58 + "🚀")
         logger.info(f"🏠              AUCTION EPISODE {episode_id} STARTING              🏠")
@@ -250,7 +257,7 @@ class AuctionSimulator:
         # Get seller action and commentary
         seller_action, seller_commentary = await self._get_seller_action(observation, info)
         
-        # Get buyer actions (can be done in parallel)
+        # Get buyer actions based on policy type
         buyer_actions = await self._get_buyer_actions(observation, info)
         
         return {
@@ -260,56 +267,17 @@ class AuctionSimulator:
         }
     
     async def _get_seller_action(self, observation: Dict, info: Dict) -> Tuple[int, str]:
-        """Get action from seller with smart LLM usage."""
-        # Use RL manager for seller action if in RL mode (and not using LLM)
-        if self.policy_type == "rl" and not self.use_llm_seller:
+        """Get action from the seller (heuristic or RL)."""
+        # Use RL manager for seller action if in RL mode
+        if self.policy_type == "rl":
             action = self.rl_manager.get_seller_action(observation, info)
-            return action, "RL (heuristic) seller decision"
-
-        questions = info.get('questions', [])
-        current_price = observation['price'][0]
-        active_buyers = sum(observation['active_mask'])
-        
-        # Decision logic: When to use LLM vs deterministic behavior
-        if questions and self.use_llm_seller and self.llm_wrapper:
-            # Use LLM only for answering questions
-            action = 1  # Answer questions
-            prompt = self._build_question_answering_prompt(questions, observation, info)
-            
-            # For question answering, we want the full response, not parsed action
-            try:
-                response = await self.llm_wrapper.call_direct(prompt)
-                commentary = response.strip()
-            except:
-                # Fallback if call_direct doesn't exist
-                _, commentary = await self.llm_wrapper.call(prompt)
-            
-            return action, f"LLM: {commentary}"
-            
-        elif self.use_llm_seller and self.llm_wrapper:
-            # Use logic for announce/close decisions, LLM for commentary only if needed
-            action = self._decide_announce_or_close(observation, info)
-            
-            if action == 0:  # Announce - deterministic
-                next_bid = current_price + 500
-                commentary = f"Going once at ${current_price:,.0f}! Do I hear ${next_bid:,.0f}?"
-                return action, commentary
-            elif action == 2:  # Close - deterministic  
-                commentary = "Going once, going twice, SOLD!"
-                return action, commentary
-            else:
-                # Fallback to continue
-                commentary = f"We're at ${current_price:,.0f}!"
-                return 0, commentary
+            return action, "RL seller decision"
         else:
             # Use heuristic seller policy
-            if self.policy_type == "heuristic":
-                action = self.policies['seller'].get_seller_action(observation, info)
-                return action, "Heuristic seller decision"
-            else:
-                # This case is now handled at the top of the function
-                action = self.rl_manager.get_seller_action(observation, info)
-                return action, "RL seller decision"
+            action = self.policies['seller'].get_seller_action(observation, info)
+            next_bid = observation['price'][0] + 500
+            commentary = f"Going once at ${observation['price'][0]:,.0f}! Do I hear ${next_bid:,.0f}?"
+            return action, commentary
     
     async def _get_buyer_actions(self, observation: Dict, info: Dict) -> List[int]:
         """Get actions from all buyers."""
@@ -329,81 +297,6 @@ class AuctionSimulator:
             actions.append(action)
         
         return actions
-    
-    def _build_seller_prompt(self, observation: Dict, info: Dict) -> str:
-        """Build a prompt for the seller LLM."""
-        current_price = observation['price'][0]
-        round_no = observation['round_no'][0]
-        active_buyers = sum(observation['active_mask'])
-        
-        # Build context from recent history
-        history_text = ""
-        if self.history:
-            history_text = "\nRecent auction activity:\n"
-            for h in list(self.history)[-3:]:  # Last 3 rounds
-                history_text += f"Round {h['round']}: ${h['price']:,.0f} - {h['result']}\n"
-        
-        # Check for questions to answer
-        questions = info.get('questions', [])
-        if questions:
-            questions_text = "\nBuyer questions to address:\n"
-            for buyer_idx, question in questions:
-                buyer_persona = self.config['environment']['buyers'][buyer_idx]['id']
-                questions_text += f"- {buyer_persona}: {question}\n"
-        else:
-            questions_text = ""
-        
-        # Calculate auction progress
-        reserve_price = self.config['environment']['seller']['reserve_price']
-        above_reserve = current_price >= reserve_price
-        
-        prompt = f"""Auctioneer: Round {round_no}, ${current_price:,.0f}, {active_buyers} bidders.{questions_text}
-Actions: 0=Continue, 1=Answer, 2=Close
-Format: [NUMBER] [5 words max]
-Example: "0 Going once!"
-"""
-        
-        return prompt
-    
-    def _build_question_answering_prompt(self, questions: List, observation: Dict, info: Dict) -> str:
-        """Build a focused prompt for answering buyer questions."""
-        current_price = observation['price'][0]
-        
-        questions_text = "Questions to answer:\n"
-        for buyer_idx, question in questions:
-            buyer_persona = self.config['environment']['buyers'][buyer_idx]['id']
-            questions_text += f"- {buyer_persona}: {question}\n"
-        
-        prompt = f"""Real estate auctioneer answering buyer questions. Current bid: ${current_price:,.0f}
-{questions_text}
-Provide helpful, professional responses about the property. Keep each answer to 1-2 sentences.
-Answer the questions directly and concisely:"""
-        
-        return prompt
-    
-    def _decide_announce_or_close(self, observation: Dict, info: Dict) -> int:
-        """Deterministic logic for when to announce vs close the auction."""
-        current_price = observation['price'][0]
-        active_buyers = sum(observation['active_mask'])
-        reserve_price = self.config['environment']['seller']['reserve_price']
-        new_bids = info.get('new_bids', [])
-        round_no = observation['round_no'][0]
-        
-        # Never close in the first few rounds - give auction time to develop
-        if round_no <= 3:
-            return 0  # Always continue early in auction
-        
-        # Close auction only if reserve is met AND one of these conditions:
-        if current_price >= reserve_price:
-            if active_buyers <= 1:
-                return 2  # Close - only one bidder left
-            elif round_no >= 5 and len(new_bids) == 0:
-                return 2  # Close - no activity after round 5
-            elif current_price >= reserve_price * 1.5:  # 50% above reserve
-                return 2  # Close - excellent price achieved
-        
-        # Otherwise continue the auction
-        return 0  # Announce/Continue
     
     def _calculate_episode_results(self, episode_log: List[Dict], final_rewards: Dict, info: Dict) -> Dict[str, Any]:
         """Calculate and return episode statistics with enhanced economic metrics."""

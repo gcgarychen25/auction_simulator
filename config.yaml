@@ -13,6 +13,14 @@ environment:
   seller:
     reserve_price: 9800 # Private price below which the seller will not sell
 
+  # Property information for prompts
+  property:
+    address: "123 Data Point Lane, Silicon Valley, CA 94304"
+    bedrooms: 4
+    bathrooms: 3
+    size_sqft: 2200
+    description: "A beautifully maintained mid-century modern home in a prime location. Features an open-concept living area, a large backyard with a deck perfect for entertaining, and a newly renovated kitchen with smart appliances. The property is situated in a quiet, family-friendly neighborhood with excellent schools and easy access to major tech campuses. Minor foundation settling noted in the last inspection, report available on request."
+
   # Buyer persona definitions
   # These are the base definitions used for heuristic policies and as the foundation for RL agents.
   buyers:

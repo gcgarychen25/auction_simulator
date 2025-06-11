@@ -1,8 +1,8 @@
 # Phase 2 RL Training Analysis Report
 
-**Generated:** 2025-06-10 12:27:18  
-**RL Evaluation Episodes:** 20 (from `phase2_results.csv`)  
-**Baseline Dataset:** phase1_results.csv (10000 episodes)  
+**Generated:** 2025-06-10 19:58:44  
+**RL Evaluation Episodes:** 1000 (from `phase2_results.csv`)  
+**Baseline Dataset:** phase1_results.csv (100 episodes)  
 
 ---
 
@@ -11,26 +11,26 @@
 This report analyzes the performance of multi-agent reinforcement learning buyers compared to the Phase 1 heuristic baseline. The analysis focuses on market outcomes from evaluation episodes.
 
 ### Key Results
-- **RL Success Rate:** 90.0% vs Heuristic 99.8%
-- **Average Price:** RL $11,167 vs Heuristic $11,032
-- **Allocative Efficiency:** RL 27.8% vs Heuristic 50.7%
-- **Economic Surplus:** RL $3,700 vs Heuristic $4,529
+- **RL Success Rate:** 100.0% vs Heuristic 100.0%
+- **Average Price:** RL $11,000 vs Heuristic $10,985
+- **Allocative Efficiency:** RL 0.0% vs Heuristic 50.0%
+- **Economic Surplus:** RL $4,200 vs Heuristic $4,510
 
 ---
 
 ## Performance Comparison Analysis
 
 ### Market Efficiency & Financials
-- **Allocative Efficiency Change:** -22.9%
-- **Price Volatility:** RL $840 vs Heuristic $448
-- **Economic Surplus Change:** $-829 (-18.3%)
+- **Allocative Efficiency Change:** -50.0%
+- **Price Volatility:** RL $0 vs Heuristic $417
+- **Economic Surplus Change:** $-310 (-6.9%)
 
 ### Winner Distribution Changes:
-- **CONSERVATIVE:** 4.9% → 15.0% (+10.1pp)
-- **AGGRESSIVE:** 50.5% → 25.0% (-25.5pp)
-- **ANALYTICAL:** 36.5% → 25.0% (-11.5pp)
-- **BUDGET:** 0.0% → 10.0% (+10.0pp)
-- **FOMO:** 7.8% → 15.0% (+7.2pp)
+- **CONSERVATIVE:** 5.0% → 0.0% (-5.0pp)
+- **AGGRESSIVE:** 50.0% → 0.0% (-50.0pp)
+- **ANALYTICAL:** 36.0% → 100.0% (+64.0pp)
+- **BUDGET:** 0.0% → 0.0% (+0.0pp)
+- **FOMO:** 9.0% → 0.0% (-9.0pp)
 
 ### Visual Comparisons
 
