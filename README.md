@@ -44,7 +44,6 @@ python run.py --phase 3
 ## 📱 Interactive Notebook
 
 ```bash
-# Open notebook.ipynb in Cursor/Jupyter
 jupyter notebook notebook.ipynb
 ```
 Phase-focused notebook with executable cells and configuration guides.
@@ -86,4 +85,4 @@ auction_simulator/
 
 ---
 
-**🎯 Complete multi-agent RL auction system with comprehensive analytics and interactive notebook interface, evolving from phase 0 smoke test to phase 1 heuristics based agents to phase 2 RL trained agents to phase 3 LLM agents.**
+**🎯 Complete multi-agent RL auction system with analytics and interactive notebook interface, evolving from phase 0 smoke test to phase 1 heuristics based agents to phase 2 RL trained agents to phase 3 LLM agents.**
