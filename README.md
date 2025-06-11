@@ -35,6 +35,11 @@ python run.py --phase 2 --episodes 100 --training-steps 1000 --output phase2_res
 ```
 PPO training and RL vs heuristic comparison. Generates `reports/phase2_analysis.md`.
 
+### Phase 3: LLM Integration
+```bash
+python run.py --phase 3
+```
+
 ## 📱 Interactive Notebook
 
 ```bash

@@ -101,12 +101,12 @@ async def run_batch_episodes(config_path: str = "config.yaml", policy_type: str 
     results = []
     start_time = time.time()
     
-    logger.info(f"Running {num_episodes} episodes with {policy_type} policies...")
+    print(f"Running {num_episodes} episodes with {policy_type} policies...")
     
     for episode_id in range(num_episodes):
-        if episode_id % 10 == 0:
+        if episode_id % 50 == 0:
             elapsed = time.time() - start_time
-            logger.info(f"Episode {episode_id}/{num_episodes} (elapsed: {elapsed:.1f}s)")
+            print(f"Episode {episode_id}/{num_episodes} (elapsed: {elapsed:.1f}s)")
         
         episode_result = await simulator.run_episode(episode_id, verbose=False)
         results.append(episode_result)
@@ -115,7 +115,7 @@ async def run_batch_episodes(config_path: str = "config.yaml", policy_type: str 
     save_results_to_csv(results, output_file)
     
     total_time = time.time() - start_time
-    logger.info(f"Completed {num_episodes} episodes in {total_time:.1f}s")
+    print(f"Completed {num_episodes} episodes in {total_time:.1f}s")
     
     return results
 
@@ -166,7 +166,7 @@ def save_results_to_csv(results: List[Dict[str, Any]], filename: str):
         writer.writeheader()
         writer.writerows(csv_data)
     
-    logger.info(f"Results saved to {filename}")
+    print(f"Results saved to {filename}")
 
 
 def randomize_buyer_personas(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -201,9 +201,9 @@ def randomize_buyer_personas(config: Dict[str, Any]) -> Dict[str, Any]:
 
 async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: int, num_eval_episodes: int):
     """Orchestrates the full RL training and evaluation pipeline with opponent randomization."""
-    logger.info("="*60)
-    logger.info("🤖 STARTING PHASE 2: RL AGENT TRAINING & EVALUATION 🤖")
-    logger.info("="*60)
+    print("="*60)
+    print("🤖 STARTING PHASE 2: RL AGENT TRAINING & EVALUATION 🤖")
+    print("="*60)
     
     from simulator import AuctionSimulator
     from policies.rl_policy import RLPolicyManager
@@ -216,7 +216,7 @@ async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: 
     start_time = time.time()
 
     # --- 2. Training Phase with Randomized Opponents ---
-    logger.info(f"\n--- 🏋️ TRAINING FOR {num_training_episodes} EPISODES (with opponent randomization) ---")
+    print(f"\n--- 🏋️ TRAINING FOR {num_training_episodes} EPISODES (with opponent randomization) ---")
     
     for episode_id in range(num_training_episodes):
         # Create a new environment with slightly different opponents for this episode
@@ -234,17 +234,17 @@ async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: 
         await training_simulator.run_episode(episode_id, verbose=False)
         
         if (episode_id + 1) % 100 == 0:
-            logger.info(f"--- Training episode {episode_id + 1}/{num_training_episodes} complete ---")
+            print(f"--- Training episode {episode_id + 1}/{num_training_episodes} complete ---")
 
     total_training_time = time.time() - start_time
-    logger.info(f"✅ Training complete in {total_training_time:.1f}s")
+    print(f"✅ Training complete in {total_training_time:.1f}s")
 
     # Save trained models and history
     rl_manager.save_models()
     rl_manager.save_training_history()
 
     # --- 3. Evaluation Phase ---
-    logger.info(f"\n--- 📊 EVALUATING FOR {num_eval_episodes} EPISODES (with fixed opponents) ---")
+    print(f"\n--- 📊 EVALUATING FOR {num_eval_episodes} EPISODES (with fixed opponents) ---")
     # For evaluation, we use a simulator with the original, non-randomized config for consistency.
     # We create a new manager and load the just-saved models into it.
     eval_rl_manager = RLPolicyManager(base_config, training_mode=False)
@@ -260,7 +260,7 @@ async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: 
     eval_results = []
     for episode_id in range(num_eval_episodes):
         if (episode_id + 1) % 50 == 0:
-            logger.info(f"Evaluation Episode {episode_id + 1}/{num_eval_episodes}")
+            print(f"Evaluation Episode {episode_id + 1}/{num_eval_episodes}")
         
         result = await eval_simulator.run_episode(episode_id, verbose=False)
         eval_results.append(result)
@@ -268,8 +268,8 @@ async def train_and_evaluate_rl_agents(config_path: str, num_training_episodes: 
     # Save evaluation results to CSV for analysis
     output_file = "phase2_results.csv"
     save_results_to_csv(eval_results, output_file)
-    logger.info(f"📈 Evaluation results saved to {output_file}")
-    logger.info("="*60)
+    print(f"📈 Evaluation results saved to {output_file}")
+    print("="*60)
 
     return output_file
 
@@ -321,7 +321,7 @@ async def main():
     
     console.print(Panel(Text("Auction Simulator", justify="center", style="bold magenta"), title="Welcome"))
     console.print(f"📝 All detailed logs are being saved to [bold cyan]{log_file_path}[/bold cyan]")
-    logging.info("\n" + "="*80 + f"\n🚀 Starting New Simulation Run: Phase {args.phase}\n" + "="*80)
+    print("\n" + "="*80 + f"\n🚀 Starting New Simulation Run: Phase {args.phase}\n" + "="*80)
 
     # --- Phase Dispatcher ---
     try:
@@ -357,17 +357,17 @@ async def main():
             
             # Optional Analysis
             if not args.no_analysis:
-                logger.info(f"\n🔍 Running Phase 1 Analysis...")
+                print(f"\n🔍 Running Phase 1 Analysis...")
                 try:
                     from phase1_analytics import run_phase1_analysis
                     run_phase1_analysis(args.output, args.config, save_plots=True)
-                    logger.info(f"📊 Phase 1 analysis complete! Report and plots generated.")
+                    print(f"📊 Phase 1 analysis complete! Report and plots generated.")
                 except ImportError:
                     logger.warning("⚠️ phase1_analytics.py not found. Skipping analysis.")
                 except Exception as e:
                     logger.error(f"❌ Error running Phase 1 analysis: {e}", exc_info=True)
             else:
-                logger.info("✅ Phase 1 data generation complete. Analysis skipped as requested.")
+                print("✅ Phase 1 data generation complete. Analysis skipped as requested.")
 
         elif args.phase == 2:
             # --- PHASE 2: RL TRAINING AND EVALUATION ---
@@ -379,10 +379,10 @@ async def main():
                     num_training_episodes=args.training_steps,
                     num_eval_episodes=args.training_steps
                 )
-                logger.info("\n✅ RL training and evaluation pipeline complete.")
+                print("\n✅ RL training and evaluation pipeline complete.")
                 
                 if not args.no_analysis:
-                    logger.info(f"\n🔍 Running Phase 2 RL Analysis...")
+                    print(f"\n🔍 Running Phase 2 RL Analysis...")
                     from phase2_analytics import run_phase2_analysis
                     
                     baseline_file = "phase1_results.csv"
@@ -395,9 +395,9 @@ async def main():
                         rl_file=eval_results_file, 
                         config_file=args.config
                     )
-                    logger.info(f"📊 Phase 2 analysis complete! Report and plots generated.")
+                    print(f"📊 Phase 2 analysis complete! Report and plots generated.")
                 else:
-                    logger.info("✅ Phase 2 training complete. Analysis skipped as requested.")
+                    print("✅ Phase 2 training complete. Analysis skipped as requested.")
 
             except Exception as e:
                 logger.error(f"❌ An error occurred during the RL pipeline: {e}")
@@ -409,13 +409,13 @@ async def main():
             if LANGGRAPH_AVAILABLE:
                 config = load_config(args.config)
                 final_state = await run_auction_episode(config)
-                logger.info("\n--- ✅ Multi-Agent Episode Complete ---")
-                logger.info(f"Winner: {final_state.winner}")
-                logger.info(f"Final Price: ${final_state.final_price:,.2f}" if final_state.final_price else "N/A")
-                logger.info(f"Reason: {final_state.failure_reason}" if final_state.failure_reason else "Auction successful.")
+                print("\n--- ✅ Multi-Agent Episode Complete ---")
+                print(f"Winner: {final_state.winner}")
+                print(f"Final Price: ${final_state.final_price:,.2f}" if final_state.final_price else "N/A")
+                print(f"Reason: {final_state.failure_reason}" if final_state.failure_reason else "Auction successful.")
             else:
                 logger.error("❌ Could not run Phase 3 simulation because the orchestrator failed to import.")
-            logger.info("\n✅ Phase 3 simulation completed.")
+            print("\n✅ Phase 3 simulation completed.")
 
     except Exception as e:
         logger.error(f"❌ An error occurred during the main execution: {e}")

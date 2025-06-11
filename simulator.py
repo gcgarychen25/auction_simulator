@@ -383,8 +383,7 @@ class AuctionSimulator:
             'episode_log': episode_log
         }
         
-        return results
-    
+        return results    
     def _print_episode_summary(self, results: Dict[str, Any]):
         """Print a summary of the episode results with enhanced economic analysis."""
         logger.info("")
