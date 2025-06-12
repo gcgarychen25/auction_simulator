@@ -10,6 +10,11 @@ GEMINI_API_KEY=your_api_key_here
 # Leave commented out to use default (gemini-2.5-flash-preview-05-20)
 # GEMINI_MODEL=gemini-2.5-flash-preview-05-20
 
+# OpenAI API Key for LLM functionality
+# Get your key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=your_openai_api_key_here
+# OPENAI_MODEL=gpt-4o
+
 # Optional: Set logging level
 LOG_LEVEL=INFO
 

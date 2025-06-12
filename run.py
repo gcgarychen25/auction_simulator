@@ -24,8 +24,12 @@ import traceback
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+import subprocess
+import webbrowser
+import socket
+import time
 
-from utils import load_config
+from config_utils import load_config
 from graph import run_auction_episode
 
 # Configure logging with improved formatting
@@ -42,7 +46,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Multi-Agent Auction Simulator")
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging for detailed round-by-round output.")
-    
+    parser.add_argument("--live", action="store_true", help="Enable live dashboard visualization.")
     args = parser.parse_args()
     return args
 
@@ -65,12 +69,25 @@ async def main():
     console.print("ℹ️  Run with --verbose for detailed, round-by-round logs.")
     print("\n" + "="*80 + "\n🚀 Starting New Multi-Agent Simulation Run\n" + "="*80)
 
+    # --- Live Visualization Setup ---
+    if args.live:
+        # Clear the previous session's log file before starting
+        log_file = "live_auction.log"
+        if os.path.exists(log_file):
+            os.remove(log_file)
+            
+        print(f"🚀 Launching Streamlit dashboard... (log file: {log_file})")
+        # We just need to launch the dashboard, it will handle reading the log file.
+        subprocess.Popen(["streamlit", "run", "viz/live_dashboard.py"])
+        # Give it a moment to start before the simulation starts writing to the file
+        time.sleep(3)
+
     # --- Run the Multi-Agent Simulation ---
     try:
         console.print("[bold yellow]🚀 Running Multi-Agent Simulation...[/bold yellow]")
         
         config = load_config(args.config)
-        final_state = await run_auction_episode(config)
+        final_state = await run_auction_episode(config, live=args.live)
         
         print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
         console.print(Panel(

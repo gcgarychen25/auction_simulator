@@ -43,7 +43,7 @@ auction_simulator/
 ├── agents.py              # Creates the LLM-powered buyer and seller agent runnables
 ├── prompts.py             # Contains all prompt templates for the agents
 ├── schemas.py             # Defines all Pydantic data structures (e.g., AuctionState, Action)
-├── utils.py               # Utility functions, like loading the configuration
+├── config_utils.py        # Utility functions, like loading the configuration
 ├── requirements.txt       # Project dependencies
 └── README.md              # You are here!
 ```

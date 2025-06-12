@@ -12,7 +12,7 @@ class Action(BaseModel):
     action: Literal["bid", "fold", "ask"] = Field(description="Action to take: bid, fold, or ask.")
     amount: float = Field(default=0.0, description="The bid amount, if applicable. Must be higher than the current price.")
     question: Optional[str] = Field(default=None, description="The question for the seller, if action is 'ask'.")
-    commentary: str = Field(description="Brief reasoning for the action.")
+    commentary: Optional[str] = Field(default=None, description="Brief reasoning for the action.")
 
 class SellerResponse(BaseModel):
     """A structured response from the seller to a buyer's question."""
@@ -32,6 +32,7 @@ class AuctionState(BaseModel):
     winner: Optional[str] = None
     final_price: Optional[float] = None
     failure_reason: str = ""
+    event_log: List['Event'] = []  # Stores all events for live streaming and analytics
 
     # Pydantic models are immutable by default, so we need to allow mutation
     class Config:
@@ -48,4 +49,11 @@ class AuctionState(BaseModel):
             "Recent History:",
         ]
         summary.extend(f"- {h}" for h in self.history[-5:])
-        return "\n".join(summary) 
+        return "\n".join(summary)
+
+class Event(BaseModel):
+    """Represents a single event in the auction for logging and live streaming."""
+    ts: float
+    type: str
+    actor: str
+    payload: dict 

@@ -8,19 +8,27 @@ from typing import Dict, Any
 
 from langchain_core.output_parsers.pydantic import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
 from schemas import Action, SellerResponse
 from prompts import create_seller_prompt, create_buyer_agent_prompt
 
 # --- LLM and Parser Setup ---
 
-# Initialize the Gemini model via LangChain, now with API key
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    # If the key is not found, we should stop execution.
-    raise ValueError("GEMINI_API_KEY environment variable not set. Please set it before running.")
+def get_llm():
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+    if openai_api_key:
+        return ChatOpenAI(model=openai_model, openai_api_key=openai_api_key, temperature=temperature)
+    elif gemini_api_key:
+        return ChatGoogleGenerativeAI(model=gemini_model, google_api_key=gemini_api_key, temperature=temperature)
+    else:
+        raise ValueError("No LLM API key found. Set either OPENAI_API_KEY or GEMINI_API_KEY in your environment.")
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-lite", google_api_key=api_key, temperature=0.8)
+llm = get_llm()
 action_parser = PydanticOutputParser(pydantic_object=Action)
 seller_parser = PydanticOutputParser(pydantic_object=SellerResponse)
 

@@ -25,4 +25,10 @@ IPython>=8.0.0
 # Development and testing (optional)
 # pytest>=7.0.0
 # black>=23.0.0
-# flake8>=6.0.0 
+# flake8>=6.0.0
+
+# New dependencies
+streamlit>=1.32
+websockets
+plotly
+langchain-openai 
