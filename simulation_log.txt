@@ -1,0 +1,173 @@
+✅ Environment variables loaded from .env file
+╭──────────────────────────────────────────────── Welcome ────────────────────────────────────────────────╮
+│                                      Multi-Agent Auction Simulator                                      │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ℹ️  Run with --verbose for detailed, round-by-round logs.
+
+================================================================================
+🚀 Starting New Multi-Agent Simulation Run
+================================================================================
+🚀 Running Multi-Agent Simulation...
+--- 🚀 Starting New Auction Episode 🚀 ---
+This is Round 0 of a real estate auction.
+Current Price: $8,000.00
+Leading Bidder: None
+Active Buyers (5): B1_CONSERVATIVE_INVESTOR, B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER, B4_BUDGET_CONSCIOUS, B5_FOMO_BIDDER
+---
+Recent History:
+
+
+--- Round 1 ---
+--- Phase: Q&A ---
+  Answering 5 question(s) from B1_CONSERVATIVE_INVESTOR, B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER, B4_BUDGET_CONSCIOUS, B5_FOMO_BIDDER...
+  - B1_CONSERVATIVE_INVESTOR: ASK (As a conservative investor, foundation issues are a major concern.  This question directly addresses my primary risk aversion.)
+     L> Question: Can you provide further details on the foundation's condition?  Are there any reports or inspections available that confirm it's in good condition and requires no major repairs?
+     L> Seller's Answer: The most recent inspection did note minor foundation settling.  A full report is available upon request.
+  - B2_AGGRESSIVE_TRADER: ASK (Assessing potential repair costs that could impact profitability is crucial for a quick flip.  Foundation issues are a major concern.)
+     L> Question: Are there any known issues with the foundation or structural integrity of the property?  What is the estimated cost to bring the property up to standard for resale?
+     L> Seller's Answer: A minor foundation settling issue was noted in the last inspection.  The full report is available upon request.  I cannot provide an estimated cost to address this as that would require a professional assessment.
+  - B3_ANALYTICAL_BUYER: ASK (Gathering information to assess risk and potential liabilities before bidding, as required by persona.)
+     L> Question: Can I review all available inspection reports, including those related to the foundation settling that was mentioned?  I also need clarification on any potential liabilities associated with the foundation's condition.
+     L> Seller's Answer: Yes, the report detailing the minor foundation settling is available upon request.  We are committed to transparency.  Regarding liabilities, I'm not qualified to comment on legal matters, but the report provides details about the settling's extent and should assist your legal counsel in assessing any potential liabilities.
+  - B4_BUDGET_CONSCIOUS: ASK (I need to understand potential future costs related to the foundation to ensure it aligns with my budget.)
+     L> Question: What is the history of foundation maintenance for this property? Are there any anticipated repairs or replacements needed in the near future, and what would be the estimated cost?
+     L> Seller's Answer: A minor foundation settling was noted in the last inspection.  A full report is available upon request.  Beyond that, I don't have specific historical maintenance records.
+  - B5_FOMO_BIDDER: ASK (I need reassurance about the foundation issue before I consider a bid.  My persona is easily swayed by positive features but is risk-averse and needs clarification on potential problems.)
+     L> Question: Could you please elaborate on the foundation issue?  How significant is the repair needed, and what is the estimated cost?
+     L> Seller's Answer: The most recent inspection revealed minor foundation settling.  A full report detailing the findings is available upon request.
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B1_CONSERVATIVE_INVESTOR: FOLD $0.00 (The seller's responses regarding the foundation indicate a risk I'm unwilling to take given my risk aversion and requirement for a move-in ready property.  The lack of a definitive statement on the foundation's condition and the potential for costly repairs makes this property too risky at any price.)
+  - B2_AGGRESSIVE_TRADER: BID $9,000.00 (Minor foundation settling is a manageable risk given my max WTP and focus on resale.  Starting with a conservative increase to gauge competition.)
+  - B3_ANALYTICAL_BUYER: Invalid action 'ASK' in bidding phase. Action ignored.
+  - B4_BUDGET_CONSCIOUS: BID $8,500.00 (Bidding slightly above the current price to test the waters.  The foundation issue is a concern, but I want to see how high others are willing to go before potentially requesting a professional inspection.)
+  - B5_FOMO_BIDDER: BID $9,000.00 (The foundation issue seems minor based on repeated seller responses.  I'm willing to take a small risk given my high WTP and the appealing property highlights.  I'll increase the bid incrementally to gauge other bidders' interest.)
+
+Round 1 Bidding: New high bid of $9,000.00 from B2_AGGRESSIVE_TRADER.
+
+
+--- Round 2 ---
+--- Phase: Q&A ---
+  Answering 4 question(s) from B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER, B4_BUDGET_CONSCIOUS, B5_FOMO_BIDDER...
+  - B2_AGGRESSIVE_TRADER: ASK (To better assess the potential resale value after addressing the foundation issue, I need a clearer picture of the repair costs.  This information is crucial for determining if the property aligns with my maximum willingness to pay.)
+     L> Question: Can I get a contractor's estimate for the foundation repair, or at least a range of costs from different contractors who have experience with similar issues?
+     L> Seller's Answer: While I don't have access to specific contractor estimates or a range of costs, a recent inspection did note minor foundation settling.  The full report is available upon request and will provide details that you can share with contractors for accurate assessments.
+  - B3_ANALYTICAL_BUYER: ASK (This question directly addresses my persona's requirement for understanding potential liabilities and cost of remediation related to the foundation settling.  A structural engineer's assessment provides more objective data than the previous inspection report.)
+     L> Question: Can I have a structural engineer's assessment of the foundation settling, and what would be the estimated cost to remediate it to a standard acceptable for resale?
+     L> Seller's Answer: The most recent inspection did note minor foundation settling.  A full report from that inspection is available upon request.  We are selling the property "as is", so we don’t have an estimated remediation cost. However, the settling is minor, and the home is otherwise beautifully maintained and in excellent condition.
+  - B4_BUDGET_CONSCIOUS: ASK (I need a better understanding of the foundation repair costs before I can confidently bid.  Getting in touch with the inspector directly is the best way to get an independent assessment.)
+     L> Question: Can you provide me with contact information for the inspector who conducted the foundation assessment? I'd like to discuss the minor settling issue in more detail and get a clearer understanding of the potential repair costs.
+     L> Seller's Answer: While I don't have the inspector's contact information readily available, I can certainly provide you with a copy of the full inspection report, which details the minor foundation settling.  This report should give you a clear understanding of the issue and allow you to seek further consultation with your own experts if needed.  The report is available upon request.
+  - B5_FOMO_BIDDER: ASK (Trying to get reassurance about the foundation issue and its impact on the recently renovated kitchen, a key selling point for me.)
+     L> Question: The inspection report mentions minor foundation settling.  Can you provide a summary of the key findings and whether this is a cosmetic issue or something that requires more significant structural work?  Also, given the newly renovated kitchen, is there any concern the settling might impact that area?
+     L> Seller's Answer: The inspection did note minor foundation settling.  A full copy of the report is available upon request.  While the report details the settling, it does not specify whether it's cosmetic or requires structural work.  The report does not specifically address the impact on the recently renovated kitchen, but we are happy to connect you with the inspector if you have further questions.
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B2_AGGRESSIVE_TRADER: BID $10,000.00 (The foundation issue is a concern, but the seller's responses indicate it's minor.  Given my high risk tolerance and focus on resale value, I'm willing to take a chance and increase the bid.  There's still room to make a profit even after foundation repairs.)
+  - B3_ANALYTICAL_BUYER: BID $10,000.00 (Bidding above the current price, but below my max WTP, to gauge the competition and see if I can secure the property without pushing the price too high.  I still need to review the inspection report before committing fully.)
+  - B4_BUDGET_CONSCIOUS: BID $10,000.00 (Bidding $10,000. This is within my budget and leaves room for potential foundation repair. I'm still slightly risk-averse, so I won't push it further unless other bidders drop out.)
+  - B5_FOMO_BIDDER: BID $10,000.00 (The newly renovated kitchen is a strong selling point.  While the foundation issue is a concern, the seller's repeated description of it as 'minor' and the lack of any significant negative feedback from other bidders makes me feel comfortable increasing my bid slightly. I'm still well below my maximum willingness to pay.)
+
+Round 2 Bidding: New high bid of $10,000.00 from B2_AGGRESSIVE_TRADER.
+
+
+--- Round 3 ---
+--- Phase: Q&A ---
+  Answering 4 question(s) from B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER, B4_BUDGET_CONSCIOUS, B5_FOMO_BIDDER...
+  - B2_AGGRESSIVE_TRADER: ASK (This question directly addresses my persona's primary concern: resale value.  Getting a cost range, even an imprecise one, allows me to better assess the property's potential profitability.)
+     L> Question: Given the minor foundation settling noted in the inspection report, what is the estimated range of costs to remediate this issue to a level acceptable for a quick resale, based on similar properties in the area?
+     L> Seller's Answer: The inspection report notes minor foundation settling.  The report is available upon request and will provide details.  Please note that I cannot provide cost estimates for remediation as that is outside the scope of this auction and requires a professional assessment.
+  - B3_ANALYTICAL_BUYER: ASK (This question directly addresses my persona's requirements for understanding potential liabilities related to the foundation settling before making a bid.  Accessing the full inspection report is crucial for my risk assessment.)
+     L> Question: The inspection report mentions minor foundation settling. Can you please provide me with a copy of the full inspection report, and also specify the exact location(s) of the settling within the property? I need to understand the extent and potential impact on the structural integrity before proceeding.
+     L> Seller's Answer: Yes, the inspection report detailing the minor foundation settling is available upon request.  While the report itself specifies the precise locations of the settling, I can't provide those specifics here.  However, I want to assure you that the settling is considered minor and doesn't affect the home's livability or structural integrity, according to the inspector.
+  - B4_BUDGET_CONSCIOUS: ASK (I need to get a better understanding of potential repair costs to determine if this property fits within my budget.  This question aims to obtain an estimate without asking for specific contractor quotes, which is unlikely to be provided.)
+     L> Question: Given the minor foundation settling noted in the inspection report, can you provide a rough estimate of the potential repair cost range based on your experience with similar properties?  I understand this is not a guarantee, but a general idea of potential costs would be helpful in my decision-making process.
+     L> Seller's Answer: While I can't provide a cost estimate for the foundation settling without a professional assessment, the inspection report is available upon request and will provide details on the nature and extent of the settling.  This should allow your own contractor to provide an accurate estimate.
+  - B5_FOMO_BIDDER: ASK (I need more reassurance about the foundation issue, especially concerning the renovated kitchen, before I commit to a higher bid.  My risk aversion is low, but I don't want to overpay for potential repair costs.)
+     L> Question: Given the 'minor' foundation settling noted in the inspection, can you please clarify if any repairs have been made to address this issue, and if not, what is the estimated cost range for such repairs from a qualified contractor?  I'm particularly interested in whether the newly renovated kitchen is structurally sound and unaffected by this settling.
+     L> Seller's Answer: The property inspection did note minor foundation settling.  No repairs have been made to address this issue.  A full report from the inspection is available upon request, and it does not specify a cost for potential repairs, nor does it comment on the structural integrity of the kitchen.  The kitchen was recently renovated and features smart appliances.
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B2_AGGRESSIVE_TRADER: BID $12,000.00 (The seller's responses to questions regarding the foundation issue have not provided a concrete cost estimate, but the consistent description of the settling as 'minor' and not affecting structural integrity reduces my risk.  I'm increasing my bid, but staying within a comfortable range below my maximum willingness to pay to allow room for potential remediation costs.)
+  - B3_ANALYTICAL_BUYER: BID $11,000.00 (I'm increasing the bid slightly.  The seller's unwillingness to provide cost estimates for foundation repair is a concern, but the inspection report is crucial for my due diligence.  I'm willing to pay a bit more to secure it and conduct my own assessment before committing to a much higher price.)
+  - B4_BUDGET_CONSCIOUS: BID $10,500.00 (Increasing the bid slightly to gauge the competition.  Still below my max WTP, and I'm hoping the lack of concrete foundation repair cost estimates will deter other bidders. The risk is acceptable given my risk aversion and the potential for a good deal.)
+  - B5_FOMO_BIDDER: BID $10,500.00 (The newly renovated kitchen is a highlight, and the seller's reassurance about the foundation issue, while not fully satisfactory, is enough to increase my bid slightly.  I'm still within my max WTP and want to see if I can secure the property.)
+
+Round 3 Bidding: New high bid of $12,000.00 from B2_AGGRESSIVE_TRADER.
+
+
+--- Round 4 ---
+--- Phase: Q&A ---
+  Answering 4 question(s) from B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER, B4_BUDGET_CONSCIOUS, B5_FOMO_BIDDER...
+  - B2_AGGRESSIVE_TRADER: ASK (This question attempts to get a better understanding of potential repair costs without relying solely on the seller's estimation, which they have avoided. This information is crucial for determining if my maximum willingness to pay is justified considering the potential remediation costs.)
+     L> Question: Given the minor foundation settling, can you provide any documentation (e.g., engineer's reports, contractor estimates) related to potential repair costs, even if not from the seller themselves?  I'm primarily interested in the range of costs to bring the foundation up to par for a quick resale.
+     L> Seller's Answer: While I don't have access to independent repair cost estimates or engineer's reports beyond the inspection report noting the minor settling, that report is available upon request.  It should provide a good starting point for assessing the situation.
+  - B3_ANALYTICAL_BUYER: ASK (This persona requires understanding potential liabilities.  A geotechnical report will provide a more thorough understanding of the foundation issues than the inspection report alone and give a better estimate of repair costs.)
+     L> Question: Can I have a geotechnical report or engineer's assessment related to the foundation settling, if one exists?  If not, what would be the estimated cost to obtain such a report from a qualified professional in the area?
+     L> Seller's Answer: Yes, a report noting minor foundation settling was included in the last inspection.  This report is available upon request.
+  - B4_BUDGET_CONSCIOUS: ASK (This persona is budget-conscious and wants to know about potential maintenance costs, specifically related to the foundation.  Getting in touch with the inspector directly is a way to get a more detailed and possibly more accurate estimate of repair costs than relying on the seller's answers.)
+     L> Question: Can you connect me with the inspector who assessed the foundation settling?  I'd like to discuss the specifics of their findings and get a clearer picture of the potential repair costs before making a final decision.
+     L> Seller's Answer: I cannot directly connect you with the inspector, but I can provide you with a copy of their report, which details their findings on the minor foundation settling.  This report should give you the information you need to assess potential repair costs.
+  - B5_FOMO_BIDDER: ASK (As a FOMO bidder, I'm swayed by the newly renovated kitchen.  I need reassurance that the foundation issue won't affect it before considering a bid. This question directly addresses my concerns and attempts to get a more specific answer than previous questions.)
+     L> Question: The inspection report mentions minor foundation settling.  Given the newly renovated kitchen, can you assure me that this settling poses no risk to the kitchen's structural integrity or functionality?
+     L> Seller's Answer: The inspection did note minor foundation settling.  While the kitchen was recently renovated,  I cannot offer an assurance regarding the long-term impact of the settling on the kitchen's structural integrity or functionality.  The full inspection report is available upon request and will provide more detail.
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B2_AGGRESSIVE_TRADER: BID $13,000.00 (Given the minor foundation settling issue, I'm increasing my bid cautiously.  The seller's responses indicate the issue is minor and the inspection report provides details. My max WTP is $15,000, and this bid keeps me within a comfortable margin while potentially deterring other bidders.)
+  - B3_ANALYTICAL_BUYER: BID $12,500.00 (The inspection report is available, addressing my requirement.  The current price is below my max WTP, and a small increment allows me to gauge the competition's commitment.)
+  - B4_BUDGET_CONSCIOUS: FOLD $0.00 (The current price of $12,000 exceeds my maximum willingness to pay of $11,500.  The uncertainty surrounding foundation repair costs, even if minor, makes this property too risky at this price point for my budget.)
+  - B5_FOMO_BIDDER: BID $12,500.00 (The newly renovated kitchen is a strong selling point.  While the foundation issue is a concern, the seller's responses haven't indicated anything alarming.  I'm willing to increase my bid slightly, driven by FOMO, but staying well within my max WTP.)
+
+Round 4 Bidding: New high bid of $13,000.00 from B2_AGGRESSIVE_TRADER.
+
+
+--- Round 5 ---
+--- Phase: Q&A ---
+  Answering 2 question(s) from B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER...
+  - B2_AGGRESSIVE_TRADER: ASK (This question directly addresses the persona's primary concern: resale value.  It aims to get a quantified estimate of potential repair costs, including a contingency, to better inform the maximum bid price.)
+     L> Question: Based on the minor foundation settling noted in the inspection report, what is the estimated cost of remediation to achieve a satisfactory level for resale, and what would be a reasonable contingency to add for unforeseen issues during repairs?
+     L> Seller's Answer: The provided property information mentions minor foundation settling and the availability of an inspection report detailing this issue.  However, it does not include an estimated cost of remediation or a suggested contingency for unforeseen repair issues.  The inspection report is available upon request and will provide more detail.
+  - B3_ANALYTICAL_BUYER: ASK (Gathering crucial information about the foundation settling to assess potential repair costs and risks before bidding further. This detailed information will help me determine if the property aligns with my risk tolerance and maximum willingness to pay.)
+     L> Question: The inspection report mentions minor foundation settling. Can you provide the specific details from the report regarding the location, extent, and type of settling observed?  I'd also like to know if any measurements (e.g., differential settlement) were taken and recorded.
+     L> Seller's Answer: The most recent inspection did note minor foundation settling.  The full report detailing the specifics of location, extent, and type of settling, including any measurements taken, is available upon request.
+  - B5_FOMO_BIDDER: PASS (The current price is at my max WTP.  While I'm interested in the property and the renovated kitchen, I'm not comfortable proceeding without further reassurance about the foundation issue, which the seller has not been able to provide.  I'll fold and see if the price drops.)
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B2_AGGRESSIVE_TRADER: BID $14,000.00 (The foundation issue is a concern, but the seller hasn't provided enough information to significantly impact my max WTP.  Given the potential for resale, I'm willing to increase my bid slightly to maintain the lead.)
+  - B3_ANALYTICAL_BUYER: BID $13,500.00 (Increasing the bid slightly to test the waters.  Still waiting for the full inspection report to make a final decision, but within my budget and acceptable risk.)
+  - B5_FOMO_BIDDER: FOLD $0.00 (The seller is unwilling to provide reassurance about the foundation issue's impact on the newly renovated kitchen, and the current price is at my max WTP.  The risk is too high given my risk aversion.)
+
+Round 5 Bidding: New high bid of $14,000.00 from B2_AGGRESSIVE_TRADER.
+
+
+--- Round 6 ---
+--- Phase: Q&A ---
+  Answering 2 question(s) from B2_AGGRESSIVE_TRADER, B3_ANALYTICAL_BUYER...
+  - B2_AGGRESSIVE_TRADER: ASK (This question directly addresses my persona's primary concern: resale value.  Knowing the potential resale price after repairs allows me to determine if the current price plus repair costs still falls within my maximum willingness to pay.)
+     L> Question: Given the minor foundation settling, what is the highest resale price I can realistically expect after addressing the foundation issue, factoring in the cost of repairs?
+     L> Seller's Answer: I cannot provide an estimate of resale price after foundation repairs.  Market value is affected by many factors beyond the scope of this auction and the provided property information.  However, this beautifully maintained mid-century modern home, with its open-concept living area, large backyard, and newly renovated kitchen, is situated in a desirable Silicon Valley neighborhood with excellent schools and proximity to major tech campuses.  These are all significant factors that contribute to its overall value.
+  - B3_ANALYTICAL_BUYER: ASK (This persona prioritizes understanding all potential liabilities and requires access to all inspection reports.  Direct contact with the inspectors will help resolve uncertainties around the foundation issue before committing to a bid at the maximum willingness to pay.)
+     L> Question: Given the seller's inability to provide cost estimates for foundation settling remediation,  can you provide contact information for the inspectors who conducted the most recent inspection? I would like to obtain a copy of their full report and potentially discuss the foundation settling with them directly.
+     L> Seller's Answer: I understand your concern regarding the foundation settling.  While I cannot provide contact information for the inspectors due to privacy reasons, a copy of their report is available upon request. The report details the findings of the inspection, including the minor foundation settling noted.
+
+--- Phase: Bidding ---
+Bidders should now consider the answers from the Q&A phase.
+  - B2_AGGRESSIVE_TRADER: FOLD $0.00 (The seller is unwilling to provide crucial information regarding the foundation repair costs, which are essential for determining the true resale value and profitability.  The risk is too high given the uncertainty, and exceeding my maximum willingness to pay ($15,000) is not justifiable.)
+  - B3_ANALYTICAL_BUYER: FOLD $0.00 (The current price has reached my maximum willingness to pay ($14,000).  While I have not obtained the specific details from the inspection report regarding the foundation settling that I required, pursuing the matter further at this price point is too risky given my risk aversion.)
+
+Round 6 Bidding: No new valid bids.
+
+--- Condition Met: Ending Auction ---
+--- AUCTION ENDED: Conclusion: SOLD to B2_AGGRESSIVE_TRADER for $14,000.00. ---
+
+----------------------------------- ✅ Simulation Complete -----------------------------------
+╭────── Auction Results ───────╮
+│ Winner: B2_AGGRESSIVE_TRADER │
+│ Final Price: $14,000.00      │
+│ Outcome: Auction successful. │
+╰──────────────────────────────╯
