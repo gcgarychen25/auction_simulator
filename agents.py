@@ -20,7 +20,7 @@ if not api_key:
     # If the key is not found, we should stop execution.
     raise ValueError("GEMINI_API_KEY environment variable not set. Please set it before running.")
 
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", google_api_key=api_key, temperature=0.8)
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-lite", google_api_key=api_key, temperature=0.8)
 action_parser = PydanticOutputParser(pydantic_object=Action)
 seller_parser = PydanticOutputParser(pydantic_object=SellerResponse)
 
