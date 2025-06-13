@@ -35,65 +35,77 @@ class GraphState(TypedDict):
 
 # --- Graph Nodes ---
 
+async def _handle_buyer_question(
+    buyer_id: str,
+    state: AuctionState,
+    agent_runnable: Any,
+    seller_runnable: Any,
+    event_bus: EventBus,
+    action_parser: Any,
+) -> Action:
+    """Handles a single buyer's question, gets an answer, logs it, and returns the action."""
+    persona = next(p for p in state.config['environment']['buyers'] if p['id'] == buyer_id)
+    
+    # Let the buyer agent decide whether to ask a question
+    action = await agent_runnable.ainvoke({
+        "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, Tendency: {persona['ask_tendency']}",
+        "state_summary": state.get_state_summary(),
+        "phase_instructions": "It is the Q&A phase. You can 'ask' a question or 'fold'.",
+        "format_instructions": action_parser.get_format_instructions(),
+    })
+
+    if action.action == 'ask' and action.question:
+        # Get the seller's answer before logging anything to ensure bundling
+        response = await seller_runnable.ainvoke({"question": action.question})
+        answer_text = response.answer if response else "Seller failed to provide an answer."
+        
+        # Log the question and answer together as a single atomic event
+        await event_bus.log(Event(
+            ts=time.time(), 
+            type="qa_pair", 
+            actor=buyer_id, 
+            payload={"question": action.question, "answer": answer_text}
+        ), state=state)
+        
+        print(f"  - {buyer_id}: ASK ({action.commentary})\n     L> Q: {action.question}\n     L> A: {answer_text.strip()}")
+        state.history.append(f"Q&A Round {state.round}: {buyer_id} asked '{action.question}' -> Answered.")
+
+    return action
+
+
 async def qa_phase_node(graph_state: GraphState) -> Dict[str, Any]:
-    """Node for the Q&A phase where buyers ask questions."""
+    """Node for the Q&A phase where buyers can ask questions and have them answered in real-time."""
     state = graph_state['state']
     event_bus = graph_state['event_bus']
+    seller_runnable = graph_state['seller_runnable']
+    
     state.round += 1
     print(f"\n\n--- Round {state.round} ---")
-    print("--- Phase: Q&A ---")
+    print("--- Phase: Q&A (Parallel) ---")
 
-    qa_instructions = "It is the Q&A phase... Your goal is to gather information... Do NOT 'bid' yet."
-    
-    tasks = []
-    for buyer_id in state.active_buyers:
-        persona = next(b for b in state.config['environment']['buyers'] if b['id'] == buyer_id)
-        runnable = graph_state['agent_runnables'][buyer_id]
-        task = runnable.ainvoke({
-            "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, ...",
-            "state_summary": state.get_state_summary(),
-            "phase_instructions": qa_instructions,
-            "format_instructions": action_parser.get_format_instructions(),
-        })
-        tasks.append(task)
-        
+    buyer_tasks = [
+        _handle_buyer_question(
+            buyer_id,
+            state,
+            graph_state['agent_runnables'][buyer_id],
+            seller_runnable,
+            event_bus,
+            action_parser,
+        )
+        for buyer_id in state.active_buyers
+    ]
+
     try:
-        qa_actions_list = await asyncio.gather(*tasks)
-        qa_actions = dict(zip(state.active_buyers, qa_actions_list))
+        buyer_actions_list = await asyncio.gather(*buyer_tasks)
+        buyer_actions = dict(zip(state.active_buyers, buyer_actions_list))
     except Exception as e:
-        print(f"🚨 Error during Q&A: {e}")
-        qa_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
+        print(f"🚨 Error during Q&A phase: {e}")
+        buyer_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
 
-    # Process questions and get answers
-    question_tasks, askers = [], []
-    for buyer_id, action in qa_actions.items():
-        if action.action == 'ask' and action.question:
-            await event_bus.log(Event(ts=time.time(), type="ask", actor=buyer_id, payload={"question": action.question}), state=state)
-            askers.append(buyer_id)
-            task = graph_state['seller_runnable'].ainvoke({"question": action.question})
-            question_tasks.append(task)
-    
-    seller_answers = {}
-    if question_tasks:
-        print(f"  Answering {len(question_tasks)} question(s) from {', '.join(askers)}...")
-        try:
-            seller_responses_list = await asyncio.gather(*question_tasks)
-            seller_answers = dict(zip(askers, seller_responses_list))
-        except Exception as e:
-            print(f"🚨 Error during seller response: {e}")
-            for asker_id in askers:
-                seller_answers[asker_id] = SellerResponse(answer=f"Error: {e}", commentary="Error")
-
-    # Log Q&A results
-    for buyer_id, action in qa_actions.items():
-        if action.action == "ask" and action.question:
-            response = seller_answers.get(buyer_id)
-            answer_text = response.answer if response else "Seller failed to provide an answer."
-            # Log the answer event
-            if response:
-                await event_bus.log(Event(ts=time.time(), type="answer", actor="Seller", payload={"answer": answer_text}), state=state)
-            print(f"  - {buyer_id}: ASK ({action.commentary})\n     L> Q: {action.question}\n     L> A: {answer_text.strip()}")
-            state.history.append(f"Q&A Round {state.round}: {buyer_id} asked '{action.question}' -> Answered.")
+    folded_buyers = {buyer_id for buyer_id, action in buyer_actions.items() if action.action == 'fold'}
+    if folded_buyers:
+        print(f"  Folding in Q&A: {', '.join(folded_buyers)}")
+        state.active_buyers = [b for b in state.active_buyers if b not in folded_buyers]
     
     return {"state": state}
 

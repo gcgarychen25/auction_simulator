@@ -5,13 +5,13 @@
 environment:
   # Top-level auction rules
   auction:
-    start_price: 8000       # Start below reserve to allow rejection scenarios
-    max_rounds: 20          # Safety limit for rounds in a single auction
+    start_price: 80000       # Start below reserve to allow rejection scenarios
+    max_rounds: 3          # Safety limit for rounds in a single auction
     bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
 
   # Seller-specific parameters
   seller:
-    reserve_price: 9800 # Private price below which the seller will not sell
+    reserve_price: 100000 # Private price below which the seller will not sell
 
   # Property information for prompts
   property:
@@ -26,34 +26,39 @@ environment:
   buyers:
     # B1: Cautious and prefers small, safe steps. Avoids risk.
     - id: B1_CONSERVATIVE_INVESTOR
-      max_wtp: 12000
+      max_wtp: 110000
       risk_aversion: 0.9
       ask_prob: 0.05
       requirements: "Wants a move-in ready property with no major repairs needed. Particularly concerned about foundation issues mentioned in the description."
+      ask_tendency: "cautious and focused on long-term value"
     # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
     - id: B2_AGGRESSIVE_TRADER
-      max_wtp: 15000
+      max_wtp: 140000
       risk_aversion: 0.1
       ask_prob: 0.0
       requirements: "Primarily interested in resale value. Less concerned with minor cosmetic issues, but wants to know about anything that could affect a quick flip, like the foundation."
+      ask_tendency: "aggressive and looks for quick flips"
     # B3: Prefers to gather information before acting.
     - id: B3_ANALYTICAL_BUYER
-      max_wtp: 14000
+      max_wtp: 125000
       risk_aversion: 0.6
       ask_prob: 0.85
       requirements: "Needs to see all inspection reports and understand any potential liabilities. Will ask specific questions about the foundation settling mentioned."
+      ask_tendency: "data-driven and asks very specific questions"
     # B4: Has a very strict budget and will not exceed it under any circumstances.
     - id: B4_BUDGET_CONSCIOUS
-      max_wtp: 11500
+      max_wtp: 105000
       risk_aversion: 0.8
       ask_prob: 0.0
       requirements: "Looking for a good deal. Wants to know about potential upcoming maintenance costs, especially related to the foundation, that could impact their budget."
+      ask_tendency: "risk-averse and focused on price"
     # B5: Prone to anxiety and bidding based on the actions of others.
     - id: B5_FOMO_BIDDER
-      max_wtp: 13000
+      max_wtp: 130000
       risk_aversion: 0.2
       ask_prob: 0.0
       requirements: "Easily swayed by property highlights like the 'newly renovated kitchen'. Wants reassurance that the foundation issue is not a major problem."
+      ask_tendency: "impulsive and easily swayed by competition"
 
 ################################################################################
 # 🎲 PHASE 0/1 SETTINGS (HEURISTIC & MONTE CARLO)

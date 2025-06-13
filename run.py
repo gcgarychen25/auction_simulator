@@ -91,9 +91,9 @@ async def main():
         
         print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
         console.print(Panel(
-            f"[bold green]Winner:[/bold green] {final_state.winner}\n"
+            f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
             f"[bold green]Final Price:[/bold green] ${final_state.final_price:,.2f}\n"
-            f"[bold green]Outcome:[/bold green] {'Auction successful.' if not final_state.failure_reason else final_state.failure_reason}",
+            f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
             title="[bold]Auction Results[/bold]",
             expand=False
         ))

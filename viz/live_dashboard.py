@@ -52,6 +52,14 @@ def get_short_name(actor_id: str) -> str:
     if "Seller" in actor_id: return "S"
     return "SYS"
 
+def get_avatar(actor_id: str) -> str:
+    """Returns an emoji avatar for the actor."""
+    if "Seller" in actor_id:
+        return "👨‍⚖️"
+    if "B" in actor_id:  # Any buyer
+        return "👤"
+    return "🤖"  # System
+
 # --- UI Rendering ---
 st.title("🏠 Live Auction Dashboard")
 st.caption(f"Watching log file: `{LIVE_LOG_FILE}`")
@@ -79,26 +87,34 @@ else:
             event_type = event.get('type', 'unknown').upper()
             payload = event.get('payload', {})
             short_name = get_short_name(actor)
+            avatar = get_avatar(actor)
 
             with transcript_container:
                 if event_type == "AUCTION_START":
                     st.info("🎉 Auction Started!")
-                elif event_type == "ASK":
-                    with st.chat_message(name=short_name):
+                elif event_type == "BID":
+                    with st.chat_message(name=short_name, avatar="💰"):
+                        st.markdown(f"**{actor}**")
+                        bid_amount = payload.get('bid', 0)
+                        st.markdown(f"I bid **${bid_amount:,.2f}**")
+                
+                elif event_type == "QA_PAIR":
+                    # Render the buyer's question
+                    with st.chat_message(name=short_name, avatar=avatar):
                         st.markdown(f"**{actor}**")
                         st.markdown(f"*{payload.get('question', 'No question provided')}*")
-                elif event_type == "ANSWER":
-                    with st.chat_message(name=short_name):
+                    # Render the seller's answer immediately after
+                    with st.chat_message(name="Seller", avatar="👨‍⚖️"):
                         st.markdown(f"**Seller**")
                         st.markdown(f"*{payload.get('answer', 'No answer provided')}*")
-                elif event_type == "BID":
-                    with st.chat_message(name=short_name):
-                        st.markdown(f"**{actor}** bids **${payload.get('amount', 0):,.2f}**")
+
                 elif event_type == "FOLD":
-                    with st.chat_message(name=short_name):
+                    with st.chat_message(name=short_name, avatar=avatar):
                         st.markdown(f"**{actor}** folds.")
                 elif event_type == "AUCTION_END":
                     st.success(f"🏁 Auction Ended! Winner: `{payload.get('winner', 'N/A')}` at `${payload.get('final_price', 0):,.2f}`")
+                else:
+                    st.info(f"Received an unhandled event type: {event_type}", icon="⚠️")
 
     with col2:
         st.subheader("📈 Live Price Chart")
