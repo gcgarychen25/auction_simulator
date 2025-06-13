@@ -49,7 +49,7 @@ class AuctionState(BaseModel):
             "Recent History:",
         ]
         summary.extend(f"- {h}" for h in self.history[-5:])
-        return "\n".join(summary)
+        return "\n".join(summary) 
 
 class Event(BaseModel):
     """Represents a single event in the auction for logging and live streaming."""

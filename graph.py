@@ -242,6 +242,6 @@ async def run_auction_episode(config: Dict[str, Any], live: bool = False):
     
     # Instrumentation: emit auction_end event
     await event_bus.log(Event(ts=time.time(), type="auction_end", actor="system", payload={"winner": final_graph_state['state'].winner, "final_price": final_graph_state['state'].final_price, "failure_reason": final_graph_state['state'].failure_reason}), state=final_graph_state['state'])
-    return final_graph_state['state']
+    return final_graph_state['state'] 
 
 # TODO: Instrument bid, ask, fold, and chat events throughout the graph nodes for full live streaming support. 

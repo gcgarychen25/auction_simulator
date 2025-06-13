@@ -20,80 +20,94 @@ if 'lines_read' not in st.session_state:
 
 # --- File Reader ---
 def read_new_events():
-    """Reads new lines from the log file since the last read."""
+    """Reads new lines from the log file, appending them to the event deque."""
     if not os.path.exists(LIVE_LOG_FILE):
         return
     
     with open(LIVE_LOG_FILE, 'r') as f:
-        # Go to the start of the last line read
+        # Fast-forward to the last read line
         for _ in range(st.session_state.lines_read):
             try:
                 next(f)
             except StopIteration:
-                return # No new lines
+                return
         
-        # Read new lines
-        new_lines = f.readlines()
-        for line in new_lines:
+        # Read all new lines
+        for line in f:
             try:
                 event = json.loads(line)
-                st.session_state.events.appendleft(event)
+                # Add new events to the right, for chronological order
+                st.session_state.events.append(event)
                 st.session_state.lines_read += 1
             except json.JSONDecodeError:
-                continue # Ignore malformed lines
+                continue
+
+def get_short_name(actor_id: str) -> str:
+    """Creates a short, 2-character name for the chat avatar."""
+    if "B1" in actor_id: return "B1"
+    if "B2" in actor_id: return "B2"
+    if "B3" in actor_id: return "B3"
+    if "B4" in actor_id: return "B4"
+    if "B5" in actor_id: return "B5"
+    if "Seller" in actor_id: return "S"
+    return "SYS"
 
 # --- UI Rendering ---
 st.title("🏠 Live Auction Dashboard")
 st.caption(f"Watching log file: `{LIVE_LOG_FILE}`")
 
-# Read new data on each run
 read_new_events()
 
 if not st.session_state.events:
     st.info("Waiting for the first event from the auction simulator...")
-    st.write("If the simulation is running, events should appear here shortly.")
 else:
     # --- Data Processing ---
-    prices = []
-    timestamps = []
-    for event in reversed(st.session_state.events):
-        if event.get('type') == 'bid' and 'amount' in event.get('payload', {}):
-            prices.append(event['payload']['amount'])
-            timestamps.append(pd.to_datetime(event['ts'], unit='s'))
-
+    bids = [
+        (pd.to_datetime(e['ts'], unit='s'), e['payload']['amount'])
+        for e in st.session_state.events
+        if e.get('type') == 'bid' and 'amount' in e.get('payload', {})
+    ]
+    
     # --- Layout ---
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.subheader("📝 Live Agent Transcript")
-        transcript_container = st.container(height=500)
-        for event in st.session_state.events: # Newest first
+        transcript_container = st.container(height=500, border=True)
+        for event in st.session_state.events:
             actor = event.get('actor', 'System')
             event_type = event.get('type', 'unknown').upper()
             payload = event.get('payload', {})
-            ts = pd.to_datetime(event['ts'], unit='s').strftime('%H:%M:%S')
+            short_name = get_short_name(actor)
 
             with transcript_container:
-                if event_type == "BID":
-                    st.markdown(f"**{ts}** | **:moneybag: BID** | `{actor}` bids **${payload.get('amount', 0):,.2f}**")
+                if event_type == "AUCTION_START":
+                    st.info("🎉 Auction Started!")
                 elif event_type == "ASK":
-                    st.markdown(f"**{ts}** | **:question: ASK** | `{actor}`: *{payload.get('question', 'N/A')}*")
+                    with st.chat_message(name=short_name):
+                        st.markdown(f"**{actor}**")
+                        st.markdown(f"*{payload.get('question', 'No question provided')}*")
                 elif event_type == "ANSWER":
-                    st.markdown(f"**{ts}** | **:speech_balloon: ANSWER** | `Seller`: *{payload.get('answer', 'N/A')}*")
-                elif event_type == "AUCTION_START":
-                    st.success(f"**{ts}** | **🎉 AUCTION STARTED**")
+                    with st.chat_message(name=short_name):
+                        st.markdown(f"**Seller**")
+                        st.markdown(f"*{payload.get('answer', 'No answer provided')}*")
+                elif event_type == "BID":
+                    with st.chat_message(name=short_name):
+                        st.markdown(f"**{actor}** bids **${payload.get('amount', 0):,.2f}**")
+                elif event_type == "FOLD":
+                    with st.chat_message(name=short_name):
+                        st.markdown(f"**{actor}** folds.")
                 elif event_type == "AUCTION_END":
-                    st.success(f"**{ts}** | **🏁 AUCTION ENDED! Winner: `{payload.get('winner', 'N/A')}` at `${payload.get('final_price', 0):,.2f}`**")
-                # Add other event types as needed
+                    st.success(f"🏁 Auction Ended! Winner: `{payload.get('winner', 'N/A')}` at `${payload.get('final_price', 0):,.2f}`")
 
     with col2:
         st.subheader("📈 Live Price Chart")
-        if prices:
-            chart_data = pd.DataFrame({'Time': timestamps, 'Price': prices}).set_index('Time')
+        if bids:
+            chart_data = pd.DataFrame(bids, columns=['Time', 'Price']).set_index('Time')
             st.line_chart(chart_data)
         else:
             st.info("No bids have been placed yet.")
 
-# --- Auto-refresh ---
+# --- Auto-refresh for live updates ---
 time.sleep(1)
 st.rerun() 
