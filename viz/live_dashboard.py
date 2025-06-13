@@ -112,7 +112,15 @@ else:
                     with st.chat_message(name=short_name, avatar=avatar):
                         st.markdown(f"**{actor}** folds.")
                 elif event_type == "AUCTION_END":
-                    st.success(f"🏁 Auction Ended! Winner: `{payload.get('winner', 'N/A')}` at `${payload.get('final_price', 0):,.2f}`")
+                    winner = payload.get('winner')
+                    final_price = payload.get('final_price')
+
+                    if winner and final_price is not None:
+                        price_str = f"${final_price:,.2f}"
+                        st.success(f"🏁 Auction Ended! Winner: `{winner}` at **{price_str}**")
+                    else:
+                        failure_reason = payload.get('failure_reason', 'Auction ended without a winner.')
+                        st.warning(f"🏁 Auction Ended! **Outcome:** {failure_reason}")
                 else:
                     st.info(f"Received an unhandled event type: {event_type}", icon="⚠️")
 
