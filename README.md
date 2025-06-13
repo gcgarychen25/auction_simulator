@@ -1,88 +1,72 @@
 # 🏠 Multi-Agent Real-Estate Auction Simulator
 
-A sophisticated multi-agent auction system with 5 buyer personas, LLM-driven seller, and reinforcement learning capabilities.
+A sophisticated multi-agent auction system built with LangGraph. This simulator orchestrates a real-estate auction featuring a central auctioneer and multiple LLM-powered buyer agents, each with a unique persona.
 
 ## 🚀 Quick Start
 
-### Install dependencies in your conda env
+### 1. Set Up Environment
+
+Install the required dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### Optional: LLM Integration
+### 2. Configure API Key
+
+Create a `.env` file in the root directory and add your Gemini API key:
+```
+GEMINI_API_KEY="your_google_api_key_here"
+```
+You can obtain a key from [Google AI Studio](https://makersuite.google.com/app/apikey).
+
+### 3. Run the Simulation
+
+Execute the main script to start the auction:
 ```bash
-# Get API key from https://makersuite.google.com/app/apikey
-export GEMINI_API_KEY="your_api_key_here"
-export GEMINI_MODEL="gemini-2.0-flash-lite"
+python run.py
 ```
 
-## 📊 Three-Phase Execution
-
-### Phase 0: Foundation Test
+For more detailed, round-by-round output, use the `--verbose` flag:
 ```bash
-python run.py --phase 0
+python run.py --verbose
 ```
-Single episode smoke test to validate core functionality.
-
-### Phase 1: Monte Carlo Baseline  (1-2 min)
-```bash
-python run.py --phase 1 --episodes 10000 --output phase1_results.csv
-```
-Statistical baseline with comprehensive analytics. Generates `reports/phase1_analysis.md`.
-
-### Phase 2: Reinforcement Learning (1-2 min)
-```bash
-python run.py --phase 2 --episodes 200 --training-steps 1000 --output phase2_results.csv
-```
-PPO training and RL vs heuristic comparison. Generates `reports/phase2_analysis.md`.
-
-### Phase 3: Smarter LLM Integration with property info and buyer requirement
-```bash
-python run.py --phase 3
-```
-
-## 📱 Interactive Notebook
-
-```bash
-jupyter notebook notebook.ipynb
-```
-Phase-focused notebook with executable cells and configuration guides.
-
-## 👥 Buyer Personas
-
-| Persona | Max WTP | Risk | Behavior |
-|---------|---------|------|----------|
-| Conservative | $12K | 0.9 | Safe bids |
-| Aggressive | $15K | 0.1 | Large bids |
-| Analytical | $14K | 0.6 | Ask questions |
-| Budget | $11.5K | 0.8 | Strict limits |
-| FOMO | $13K | 0.2 | Follow others |
 
 ## 🏗️ Architecture
 
-The project is organized into a modular, phase-driven structure:
+The project is organized into a modular, agent-focused structure, making it easy to extend and maintain.
 
 ```
 auction_simulator/
-├── run.py                       # Main CLI to orchestrate all simulation phases
-├── config.yaml                  # Defines environment, buyers, seller, and persona requirements
-├── README.md                    # You are here!
-│
-├── multi_agent_orchestrator.py  # CORE: Phase 3 LLM-based multi-agent simulation
-│
-├── simulator.py                 # LEGACY: Core engine for Phase 1 (Monte Carlo) & 2 (RL)
-├── auction_env.py               # LEGACY: Gymnasium environment for RL training
-├── policies/                    # LEGACY: Heuristic and RL agent policies
-│
-├── phase1_analytics.py          # Analysis scripts for Monte Carlo results
-├── phase2_analytics.py          # Analysis scripts for RL agent performance
-├── phase1_report.md     
-├── phase2_report.md              
-│
-└── notebook.ipynb               # Interactive notebook for experimentation and visualization
+├── run.py                 # Main CLI entry point to start the simulation
+├── config.yaml            # Defines the auction, property, buyers, and seller details
+├── graph.py               # Core orchestration logic using a LangGraph StateGraph
+├── agents.py              # Creates the LLM-powered buyer and seller agent runnables
+├── prompts.py             # Contains all prompt templates for the agents
+├── schemas.py             # Defines all Pydantic data structures (e.g., AuctionState, Action)
+├── config_utils.py        # Utility functions, like loading the configuration
+├── requirements.txt       # Project dependencies
+└── README.md              # You are here!
 ```
 
+## 🛠️ Modifying the Workflow
 
----
+### Key Scripts for Future Modifications:
 
-**🎯 Complete multi-agent RL auction system with analytics and interactive notebook interface, evolving from phase 0 smoke test to phase 1 heuristics based agents to phase 2 RL trained agents to phase 3 LLM agents.**
+*   **To change an agent's personality, reasoning, or decision-making process:**
+    *   **File to Modify:** `prompts.py`
+    *   **Why:** This file contains the "soul" of your agents. By changing the system messages in `create_buyer_agent_prompt()` or `create_seller_prompt()`, you can alter their behavior, risk tolerance, and how they interpret their persona. This is the most common place you will make changes.
+
+*   **To change the auction's rules or the flow of events:**
+    *   **File to Modify:** `graph.py`
+    *   **Why:** This file defines the state machine of the auction.
+        *   To add a new step (e.g., a "final negotiation" phase), you would create a new node function and add it to the graph.
+        *   To change when the auction ends, you would modify the logic in the `should_continue()` conditional edge function.
+        *   To alter what happens in the Q&A or Bidding phases, you would edit the `qa_phase_node()` or `bidding_phase_node()` functions.
+
+*   **To change the data the agents work with:**
+    *   **File to Modify:** `schemas.py`
+    *   **Why:** If you want to add new information to the state (e.g., an "interest rate" variable) or give agents new abilities (e.g., a "request\_financing" action), you would first define these new data structures in the Pydantic models here. This change would then ripple to `prompts.py` (to teach the agents about the new data) and `graph.py` (to handle the new logic).
+
+*   **To change the underlying LLM or how agents are built:**
+    *   **File to Modify:** `agents.py`
+    *   **Why:** This file handles the technical setup of the agents. If you wanted to switch from Gemini to another model, or change the `temperature` to make the agents more or less creative, you would make those changes to the `llm` object here.
