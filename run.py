@@ -90,9 +90,12 @@ async def main():
         final_state = await run_auction_episode(config, live=args.live)
         
         print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
+        
+        final_price_str = f"${final_state.final_price:,.2f}" if final_state.final_price is not None else "N/A"
+
         console.print(Panel(
             f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
-            f"[bold green]Final Price:[/bold green] ${final_state.final_price:,.2f}\n"
+            f"[bold green]Final Price:[/bold green] {final_price_str}\n"
             f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
             title="[bold]Auction Results[/bold]",
             expand=False

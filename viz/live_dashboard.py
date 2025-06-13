@@ -95,7 +95,7 @@ else:
                 elif event_type == "BID":
                     with st.chat_message(name=short_name, avatar="💰"):
                         st.markdown(f"**{actor}**")
-                        bid_amount = payload.get('bid', 0)
+                        bid_amount = payload.get('amount', 0)
                         st.markdown(f"I bid **${bid_amount:,.2f}**")
                 
                 elif event_type == "QA_PAIR":
