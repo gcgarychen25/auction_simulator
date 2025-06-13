@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 # --- Action and Response Schemas ---
 
 class Action(BaseModel):
-    """A structured action to be taken in the auction."""
-    action: Literal["bid", "fold", "ask"] = Field(description="Action to take: bid, fold, or ask.")
-    amount: float = Field(default=0.0, description="The bid amount, if applicable. Must be higher than the current price.")
-    question: Optional[str] = Field(default=None, description="The question for the seller, if action is 'ask'.")
-    commentary: Optional[str] = Field(default=None, description="Brief reasoning for the action.")
+    """A buyer's action, which can be asking a question, bidding, or folding."""
+    action: Literal["ask", "bid", "call", "fold"]
+    amount: Optional[float] = Field(None, description="The amount to bid. Required for 'bid' action.")
+    question: Optional[str] = Field(None, description="The question to ask. Required for 'ask' action.")
+    commentary: str = Field(..., description="The reasoning behind the action.")
 
 class SellerResponse(BaseModel):
     """A structured response from the seller to a buyer's question."""
@@ -28,6 +28,7 @@ class AuctionState(BaseModel):
     current_price: float
     leading_bidder: Optional[str] = None
     active_buyers: List[str]
+    round_had_bid: bool = False
     history: List[str] = []
     winner: Optional[str] = None
     final_price: Optional[float] = None

@@ -9,6 +9,7 @@ from typing import Dict, Any
 from langchain_core.output_parsers.pydantic import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
 
 from schemas import Action, SellerResponse
 from prompts import create_seller_prompt, create_buyer_agent_prompt
@@ -48,6 +49,17 @@ def create_seller_runnable(config: Dict[str, Any]):
 
 def create_buyer_agent_runnable(persona: Dict[str, Any]):
     """Creates a complete LangChain runnable for a single buyer agent."""
-    prompt = create_buyer_agent_prompt()
-    chain = prompt | llm | action_parser
+    buyer_prompt_template = ChatPromptTemplate.from_messages(
+        [
+            ("system",
+             "You are a participant in a multi-agent auction for a house. You must act according to your persona.\n"
+             "Your persona summary is: {persona_summary}\n\n"
+             "The current state of the auction is: {state_summary}\n\n"
+             "You have two phases: Q&A and Bidding. Your current phase is: {phase_instructions}\n\n"
+             "You must respond with a JSON object matching the following schema: {format_instructions}"
+             ),
+            ("human", "It is your turn to act. Decide your next move (ask, bid, call, or fold).")
+        ]
+    )
+    chain = buyer_prompt_template | llm | action_parser
     return chain.with_config({"run_name": f"Buyer_{persona['id']}"}) 

@@ -98,6 +98,11 @@ else:
                         bid_amount = payload.get('amount', 0)
                         st.markdown(f"I bid **${bid_amount:,.2f}**")
                 
+                elif event_type == "CALL":
+                    with st.chat_message(name=short_name, avatar=avatar):
+                        st.markdown(f"**{actor}**")
+                        st.markdown(f"Calls.")
+
                 elif event_type == "QA_PAIR":
                     # Render the buyer's question
                     with st.chat_message(name=short_name, avatar=avatar):

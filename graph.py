@@ -115,7 +115,11 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
     state = graph_state['state']
     event_bus = graph_state['event_bus']
     print("\n--- Phase: Bidding ---")
-    bidding_instructions = "It is the Bidding phase... you must now 'bid' or 'fold'."
+    bidding_instructions = (
+        "It is the Bidding phase. You can 'bid' to raise the price, "
+        "'call' to match the current price and stay in, or 'fold' to exit the auction. "
+        "A 'bid' amount must be higher than the current price."
+    )
     
     tasks = []
     for buyer_id in state.active_buyers:
@@ -136,17 +140,35 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
         print(f"🚨 Error during bidding: {e}")
         bidding_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
 
-    # Log bid and fold events
+    # Log and print all actions for visualization and terminal output
+    print("  --- Bidding Actions ---")
     for buyer_id, action in bidding_actions.items():
-        if action.action == 'bid':
-            await event_bus.log(Event(ts=time.time(), type="bid", actor=buyer_id, payload={"amount": action.amount}), state=state)
-        elif action.action == 'fold':
-            await event_bus.log(Event(ts=time.time(), type="fold", actor=buyer_id, payload={}), state=state)
+        event_type = action.action
+        log_payload = {}
+        
+        if event_type == 'bid':
+            # Ensure amount is not None before formatting
+            amount_str = f"${action.amount:,.2f}" if action.amount is not None else "an invalid amount"
+            print(f"  - {buyer_id}: BIDS {amount_str}")
+            log_payload = {"amount": action.amount}
+        elif event_type == 'fold':
+            print(f"  - {buyer_id}: FOLDS")
+        elif event_type == 'call':
+            print(f"  - {buyer_id}: CALLS")
+        
+        # Log to event bus for streamlit
+        # This check is good practice, although the agent should only be choosing from bid, call, or fold in this phase
+        if event_type in ["bid", "fold", "call"]:
+             await event_bus.log(Event(ts=time.time(), type=event_type, actor=buyer_id, payload=log_payload), state=state)
 
+    # Reset bid flag for the round
+    state.round_had_bid = False
+    
     # Process bids and update state
-    valid_bids = {b: a for b, a in bidding_actions.items() if a.action == 'bid' and a.amount > state.current_price}
+    valid_bids = {b: a for b, a in bidding_actions.items() if a.action == 'bid' and a.amount is not None and a.amount > state.current_price}
     
     if valid_bids:
+        state.round_had_bid = True
         highest_bidder = max(valid_bids, key=lambda k: valid_bids[k].amount)
         state.leading_bidder = highest_bidder
         state.current_price = valid_bids[highest_bidder].amount
@@ -154,19 +176,33 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
         print(f"\n{log_msg}")
         state.history.append(log_msg)
 
-    folded_buyers = {b for b, a in bidding_actions.items() if a.action == 'fold'}
-    state.active_buyers = [b for b in state.active_buyers if b not in folded_buyers]
-
+    # Process folds - determine who is still active
+    folded_buyers = {b_id for b_id, action in bidding_actions.items() if action.action == 'fold'}
+    state.active_buyers = [b_id for b_id in state.active_buyers if b_id not in folded_buyers]
+    
     return {"state": state}
 
 # --- Conditional Edges ---
 
 def should_continue(graph_state: GraphState) -> str:
-    """Determine whether to continue the auction or end."""
+    """
+    Determine whether to continue the auction or end.
+    The auction ends if:
+    1. Only one or zero buyers are left.
+    2. A full round of bidding occurred with no new bids (everyone 'called' or 'folded').
+    3. The maximum number of rounds is reached.
+    """
     state = graph_state['state']
-    if len(state.active_buyers) <= 1 or state.round >= state.config['environment']['auction']['max_rounds']:
-        print("\n--- Condition Met: Ending Auction ---")
+    if len(state.active_buyers) <= 1:
+        print("\n--- Condition Met: Auction ending due to lack of bidders. ---")
         return "end"
+    if not state.round_had_bid and state.round > 1: # No bids in the round (after the first)
+        print("\n--- Condition Met: Auction ending because bidding has stabilized. ---")
+        return "end"
+    if state.round >= state.config['environment']['auction']['max_rounds']:
+        print("\n--- Condition Met: Auction ending due to reaching max rounds. ---")
+        return "end"
+        
     return "continue"
 
 def finalize_auction_node(graph_state: GraphState) -> Dict[str, Any]:
