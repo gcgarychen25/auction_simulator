@@ -29,11 +29,11 @@ class AuctionState(BaseModel):
     leading_bidder: Optional[str] = None
     active_buyers: List[str]
     round_had_bid: bool = False
-    history: List[str] = []
+    history: List[str] = Field(default_factory=list)
     winner: Optional[str] = None
     final_price: Optional[float] = None
     failure_reason: str = ""
-    event_log: List['Event'] = []  # Stores all events for live streaming and analytics
+    event_log: List['Event'] = Field(default_factory=list)  # Stores all events for live streaming and analytics
 
     # Pydantic models are immutable by default, so we need to allow mutation
     class Config:
