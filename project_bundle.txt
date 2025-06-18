@@ -1,0 +1,853 @@
+
+========================================
+📄 START OF FILE: run.py
+========================================
+
+"""
+Main Orchestration Script for the Multi-Agent Auction Simulator.
+
+This script drives a single auction episode using a multi-agent framework,
+leveraging LangGraph for orchestration. It loads the auction configuration,
+runs the simulation, and prints the final results.
+"""
+
+# Load environment variables from .env file
+import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Environment variables loaded from .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Please install with: pip install python-dotenv")
+except Exception as e:
+    print(f"⚠️  Could not load .env file: {e}")
+
+import asyncio
+import argparse
+import logging
+import traceback
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+import subprocess
+import webbrowser
+import socket
+import time
+
+from config_utils import load_config
+from graph import run_auction_episode
+
+# Configure logging with improved formatting
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
+
+# Suppress verbose HTTP and other noisy loggers
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("litellm").setLevel(logging.CRITICAL)
+
+
+def parse_args():
+    """Parses command-line arguments."""
+    parser = argparse.ArgumentParser(description="Multi-Agent Auction Simulator")
+    parser.add_argument("--config", default="config.yaml", help="Path to configuration file.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging for detailed round-by-round output.")
+    parser.add_argument("--live", action="store_true", help="Enable live dashboard visualization.")
+    args = parser.parse_args()
+    return args
+
+
+async def main():
+    """Main entry point for the multi-agent simulation."""
+    args = parse_args()
+    
+    console = Console()
+
+    # --- Set up Logging ---
+    # Configure root logger for console output
+    root_logger = logging.getLogger()
+    if args.verbose:
+        root_logger.setLevel(logging.INFO)
+    else:
+        root_logger.setLevel(logging.WARNING)
+        
+    console.print(Panel(Text("Multi-Agent Auction Simulator", justify="center", style="bold magenta"), title="Welcome"))
+    console.print("ℹ️  Run with --verbose for detailed, round-by-round logs.")
+    print("\n" + "="*80 + "\n🚀 Starting New Multi-Agent Simulation Run\n" + "="*80)
+
+    # --- Live Visualization Setup ---
+    if args.live:
+        # Clear the previous session's log file before starting
+        log_file = "live_auction.log"
+        if os.path.exists(log_file):
+            os.remove(log_file)
+            
+        print(f"🚀 Launching Streamlit dashboard... (log file: {log_file})")
+        # We just need to launch the dashboard, it will handle reading the log file.
+        subprocess.Popen(["streamlit", "run", "viz/live_dashboard.py"])
+        # Give it a moment to start before the simulation starts writing to the file
+        time.sleep(3)
+
+    # --- Run the Multi-Agent Simulation ---
+    try:
+        console.print("[bold yellow]🚀 Running Multi-Agent Simulation...[/bold yellow]")
+        
+        config = load_config(args.config)
+        final_states = await run_auction_episode(config, live=args.live)
+        
+        print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
+        
+        for final_state in final_states:
+            final_price_str = f"${final_state.final_price:,.2f}" if final_state.final_price is not None else "N/A"
+            title = f"[bold]Auction Results for {final_state.property_id}[/bold]"
+
+            console.print(Panel(
+                f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
+                f"[bold green]Final Price:[/bold green] {final_price_str}\n"
+                f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
+                title=title,
+                expand=False
+            ))
+
+    except Exception as e:
+        logger.error(f"❌ An error occurred during the main execution: {e}")
+        logger.error(traceback.format_exc())
+        console.print(f"[bold red]❌ Simulation failed. Run with --verbose for detailed logs.[/bold red]")
+
+
+if __name__ == "__main__":
+    # Ensure the current directory is in the path to allow for module imports
+    import sys
+    sys.path.append(os.path.dirname(__file__))
+    
+    asyncio.run(main()) 
+
+========================================
+📄 END OF FILE: run.py
+========================================
+
+========================================
+📄 START OF FILE: graph.py
+========================================
+
+"""
+Auction orchestration using LangGraph.
+"""
+
+import asyncio
+import yaml
+from typing import Dict, Any, List, TypedDict, Annotated
+
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+
+from schemas import AuctionState, Action, SellerResponse, Event, Participation
+from agents import (
+    create_buyer_agent_runnable,
+    create_seller_runnable,
+    action_parser,
+    create_buyer_preference_runnable
+)
+from utils.event_bus import EventBus
+import time
+
+# --- Graph State ---
+
+class GraphState(TypedDict):
+    """
+    Represents the state of our graph for a single auction.
+    
+    Attributes:
+        state: The full auction state for one property.
+        agent_runnables: A dictionary of all buyer agent runnables.
+        seller_runnable: The seller agent runnable for the specific property.
+        messages: A list of messages for communication between nodes.
+        event_bus: The event bus for logging events.
+    """
+    state: AuctionState
+    agent_runnables: Dict[str, Any]
+    seller_runnable: Any
+    messages: Annotated[list, add_messages]
+    event_bus: EventBus
+
+
+# --- Graph Nodes ---
+
+async def _handle_buyer_question(
+    buyer_id: str,
+    state: AuctionState,
+    agent_runnable: Any,
+    seller_runnable: Any,
+    event_bus: EventBus,
+    action_parser: Any,
+) -> Action:
+    """Handles a single buyer's question, gets an answer, logs it, and returns the action."""
+    persona = next(p for p in state.config['environment']['buyers'] if p['id'] == buyer_id)
+    property_details = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)['details']
+
+    # Let the buyer agent decide whether to ask a question
+    action = await agent_runnable.ainvoke({
+        "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, Tendency: {persona['ask_tendency']}",
+        "property_details": yaml.dump(property_details),
+        "state_summary": state.get_state_summary(),
+        "phase_instructions": "It is the Q&A phase. You can 'ask' a question or 'fold'.",
+        "format_instructions": action_parser.get_format_instructions(),
+    })
+
+    if action.action == 'ask' and action.question:
+        # Get the seller's answer before logging anything to ensure bundling
+        response = await seller_runnable.ainvoke({"question": action.question})
+        answer_text = response.answer if response else "Seller failed to provide an answer."
+        
+        # Log the question and answer together as a single atomic event
+        await event_bus.log(Event(
+            ts=time.time(), 
+            type="qa_pair", 
+            actor=buyer_id, 
+            payload={"property_id": state.property_id, "question": action.question, "answer": answer_text}
+        ), state=state)
+        
+        print(f"  - {buyer_id}: ASK ({action.commentary})\n     L> Q: {action.question}\n     L> A: {answer_text.strip()}")
+        state.history.append(f"Q&A Round {state.round} on {state.property_id}: {buyer_id} asked '{action.question}' -> Answered.")
+
+    return action
+
+
+async def qa_phase_node(graph_state: GraphState) -> Dict[str, Any]:
+    """Node for the Q&A phase where buyers can ask questions and have them answered in real-time."""
+    state = graph_state['state']
+    event_bus = graph_state['event_bus']
+    seller_runnable = graph_state['seller_runnable']
+    
+    state.round += 1
+    print(f"\n\n--- Round {state.round} ({state.property_id}) ---")
+    print("--- Phase: Q&A (Parallel) ---")
+
+    buyer_tasks = [
+        _handle_buyer_question(
+            buyer_id,
+            state,
+            graph_state['agent_runnables'][buyer_id],
+            seller_runnable,
+            event_bus,
+            action_parser,
+        )
+        for buyer_id in state.active_buyers
+    ]
+
+    try:
+        buyer_actions_list = await asyncio.gather(*buyer_tasks)
+        buyer_actions = dict(zip(state.active_buyers, buyer_actions_list))
+    except Exception as e:
+        print(f"🚨 Error during Q&A phase on {state.property_id}: {e}")
+        buyer_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
+
+    folded_buyers = {buyer_id for buyer_id, action in buyer_actions.items() if action.action == 'fold'}
+    if folded_buyers:
+        print(f"  Folding in Q&A on {state.property_id}: {', '.join(folded_buyers)}")
+        state.active_buyers = [b for b in state.active_buyers if b not in folded_buyers]
+    
+    return {"state": state}
+
+
+async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
+    """Node for the bidding phase."""
+    state = graph_state['state']
+    event_bus = graph_state['event_bus']
+    print(f"\n--- Phase: Bidding ({state.property_id}) ---")
+    bidding_instructions = (
+        "It is the Bidding phase. You can 'bid' to raise the price, "
+        "'call' to match the current price and stay in, or 'fold' to exit the auction. "
+        "A 'bid' amount must be higher than the current price."
+    )
+    
+    tasks = []
+    property_details = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)['details']
+    for buyer_id in state.active_buyers:
+        persona = next(b for b in state.config['environment']['buyers'] if b['id'] == buyer_id)
+        runnable = graph_state['agent_runnables'][buyer_id]
+        task = runnable.ainvoke({
+             "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, ...",
+             "property_details": yaml.dump(property_details),
+             "state_summary": state.get_state_summary(),
+             "phase_instructions": bidding_instructions,
+             "format_instructions": action_parser.get_format_instructions(),
+        })
+        tasks.append(task)
+    
+    try:
+        bidding_actions_list = await asyncio.gather(*tasks)
+        bidding_actions = dict(zip(state.active_buyers, bidding_actions_list))
+    except Exception as e:
+        print(f"🚨 Error during bidding on {state.property_id}: {e}")
+        bidding_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
+
+    # Log and print all actions for visualization and terminal output
+    print(f"  --- Bidding Actions ({state.property_id}) ---")
+    for buyer_id, action in bidding_actions.items():
+        event_type = action.action
+        log_payload = {"property_id": state.property_id}
+        
+        if event_type == 'bid':
+            amount_str = f"${action.amount:,.2f}" if action.amount is not None else "an invalid amount"
+            print(f"  - {buyer_id}: BIDS {amount_str}")
+            log_payload["amount"] = action.amount
+        elif event_type == 'fold':
+            print(f"  - {buyer_id}: FOLDS")
+        elif event_type == 'call':
+            print(f"  - {buyer_id}: CALLS")
+        
+        if event_type in ["bid", "fold", "call"]:
+             await event_bus.log(Event(ts=time.time(), type=event_type, actor=buyer_id, payload=log_payload), state=state)
+
+    # Reset bid flag for the round
+    state.round_had_bid = False
+    
+    # Process bids and update state
+    valid_bids = {b: a for b, a in bidding_actions.items() if a.action == 'bid' and a.amount is not None and a.amount > state.current_price}
+    
+    if valid_bids:
+        state.round_had_bid = True
+        highest_bidder = max(valid_bids, key=lambda k: valid_bids[k].amount)
+        state.leading_bidder = highest_bidder
+        state.current_price = valid_bids[highest_bidder].amount
+        log_msg = f"Round {state.round} Bidding on {state.property_id}: New high bid of ${state.current_price:,.2f} from {state.leading_bidder}."
+        print(f"\n{log_msg}")
+        state.history.append(log_msg)
+
+    # Process folds - determine who is still active
+    folded_buyers = {b_id for b_id, action in bidding_actions.items() if action.action == 'fold'}
+    state.active_buyers = [b_id for b_id in state.active_buyers if b_id not in folded_buyers]
+    
+    return {"state": state}
+
+# --- Conditional Edges ---
+
+def should_continue(graph_state: GraphState) -> str:
+    """Determine whether to continue the auction or end."""
+    state = graph_state['state']
+    if len(state.active_buyers) <= 1:
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending due to lack of bidders. ---")
+        return "end"
+    if not state.round_had_bid and state.round > 0:
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending because bidding has stabilized. ---")
+        return "end"
+    if state.round >= state.config['environment']['auction']['max_rounds']:
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending due to reaching max rounds. ---")
+        return "end"
+        
+    return "continue"
+
+def finalize_auction_node(graph_state: GraphState) -> Dict[str, Any]:
+    """Finalizes the auction, determining winner or failure reason."""
+    state = graph_state['state']
+    
+    # Find the property to get the seller's reserve price factor
+    prop_config = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)
+    # Use the explicit estimated market value from the config
+    estimated_market_value = prop_config['estimated_market_value']
+    reserve_price = estimated_market_value * prop_config['seller']['reserve_price_factor']
+
+    if state.leading_bidder and state.current_price >= reserve_price:
+        state.winner = state.leading_bidder
+        state.final_price = state.current_price
+        state.history.append(f"Conclusion for {state.property_id}: SOLD to {state.winner} for ${state.final_price:,.2f}.")
+    else:
+        reason = "Reserve price not met." if state.leading_bidder else "No valid bids were placed."
+        state.failure_reason = f"Failed to sell. {reason}"
+        state.history.append(f"Conclusion for {state.property_id}: FAILED. {state.failure_reason}")
+    
+    print(f"--- AUCTION ENDED ({state.property_id}): {state.history[-1]} ---")
+    return {"state": state}
+
+
+# --- Graph Definition ---
+
+def build_graph():
+    """Builds the LangGraph for a single property auction."""
+    workflow = StateGraph(GraphState)
+
+    workflow.add_node("qa_phase", qa_phase_node)
+    workflow.add_node("bidding_phase", bidding_phase_node)
+    workflow.add_node("finalize_auction", finalize_auction_node)
+
+    workflow.add_conditional_edges(
+        "bidding_phase",
+        should_continue,
+        {
+            "continue": "qa_phase",
+            "end": "finalize_auction",
+        },
+    )
+    workflow.add_edge("qa_phase", "bidding_phase")
+    workflow.add_edge("finalize_auction", END)
+    
+    workflow.set_entry_point("qa_phase")
+    
+    return workflow.compile()
+
+
+# --- Main Orchestration Function ---
+
+async def run_auction_episode(config: Dict[str, Any], live: bool = False) -> List[AuctionState]:
+    """
+    Runs a full market episode with multiple auctions, one for each property.
+    1. Buyers reflect and choose which auctions to join.
+    2. Auctions are run sequentially for each property.
+    """
+    event_bus = EventBus(live=live)
+    env_config = config['environment']
+    
+    # --- 1. Buyer Reflection and Participation Choice ---
+    print("--- 📢 Market Announcement & Buyer Reflection 📢 ---")
+    properties_summary = yaml.dump([
+        {"id": p['id'], **p['details']} for p in env_config['properties']
+    ])
+    
+    preference_tasks = []
+    for buyer_persona in env_config['buyers']:
+        runnable = create_buyer_preference_runnable(buyer_persona)
+        task = runnable.ainvoke({"properties_summary": properties_summary})
+        preference_tasks.append(task)
+        
+    participation_results: List[Participation] = await asyncio.gather(*preference_tasks)
+    
+    participation_map = {
+        buyer['id']: result.auctions_to_join
+        for buyer, result in zip(env_config['buyers'], participation_results)
+    }
+
+    print("\n--- 📝 Buyer Participation Intentions ---")
+    for buyer_id, property_ids in participation_map.items():
+        print(f"  - {buyer_id} will join auctions for: {', '.join(property_ids) or 'None'}")
+    
+    # --- 2. Run Auctions Sequentially for Each Property ---
+    final_states = []
+    graph = build_graph()
+
+    for prop in env_config['properties']:
+        property_id = prop['id']
+        print(f"\n\n--- 🚀 Starting Auction for Property: {property_id} 🚀 ---")
+
+        # Determine active buyers for this specific auction
+        active_buyers_for_this_auction = [
+            b_id for b_id, p_ids in participation_map.items() if property_id in p_ids
+        ]
+        
+        if not active_buyers_for_this_auction:
+            print(f"--- ⏩ Skipping auction for {property_id}: No buyers interested. ---")
+            # Create a dummy final state for reporting
+            final_states.append(AuctionState(
+                config=config,
+                property_id=property_id,
+                current_price=env_config['auction']['start_price'],
+                active_buyers=[],
+                failure_reason="No buyers participated."
+            ))
+            continue
+
+        # Initial state setup for this specific auction
+        initial_state = AuctionState(
+            config=config,
+            property_id=property_id,
+            current_price=env_config['auction']['start_price'],
+            active_buyers=active_buyers_for_this_auction,
+        )
+        
+        # Agent setup for this auction
+        buyer_runnables = {
+            buyer['id']: create_buyer_agent_runnable(buyer)
+            for buyer in env_config['buyers'] if buyer['id'] in active_buyers_for_this_auction
+        }
+        seller_runnable = create_seller_runnable(prop)
+        
+        # Initial inputs for the graph
+        inputs = {
+            "state": initial_state,
+            "agent_runnables": buyer_runnables,
+            "seller_runnable": seller_runnable,
+            "messages": [],
+            "event_bus": event_bus,
+        }
+        
+        await event_bus.log(Event(ts=time.time(), type="auction_start", actor="system", payload={"config": config, "property_id": property_id}), state=initial_state)
+        
+        final_graph_state = await graph.ainvoke(inputs)
+        final_state = final_graph_state['state']
+        final_states.append(final_state)
+        
+        await event_bus.log(Event(ts=time.time(), type="auction_end", actor="system", payload={"property_id": property_id, "winner": final_state.winner, "final_price": final_state.final_price, "failure_reason": final_state.failure_reason}), state=final_state)
+        
+    return final_states
+
+# TODO: Instrument bid, ask, fold, and chat events throughout the graph nodes for full live streaming support. 
+
+========================================
+📄 END OF FILE: graph.py
+========================================
+
+========================================
+📄 START OF FILE: agents.py
+========================================
+
+"""
+Agent definitions for the auction simulator.
+"""
+
+import os
+import yaml
+from typing import Dict, Any
+
+from langchain_core.output_parsers.pydantic import PydanticOutputParser
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+
+from schemas import Action, SellerResponse, Participation
+from prompts import create_seller_prompt, create_buyer_agent_prompt, create_buyer_preference_prompt
+
+# --- LLM and Parser Setup ---
+
+def get_llm():
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+    if openai_api_key:
+        return ChatOpenAI(model=openai_model, openai_api_key=openai_api_key, temperature=temperature)
+    elif gemini_api_key:
+        return ChatGoogleGenerativeAI(model=gemini_model, google_api_key=gemini_api_key, temperature=temperature)
+    else:
+        raise ValueError("No LLM API key found. Set either OPENAI_API_KEY or GEMINI_API_KEY in your environment.")
+
+llm = get_llm()
+action_parser = PydanticOutputParser(pydantic_object=Action)
+seller_parser = PydanticOutputParser(pydantic_object=SellerResponse)
+participation_parser = PydanticOutputParser(pydantic_object=Participation)
+
+
+# --- Agent Runnable Definitions ---
+
+def create_buyer_preference_runnable(persona: Dict[str, Any]):
+    """Creates a runnable for a buyer to decide which auctions to join."""
+    prompt = create_buyer_preference_prompt().partial(
+        persona_summary=yaml.dump(persona),
+        format_instructions=participation_parser.get_format_instructions()
+    )
+    return (prompt | llm | participation_parser).with_config({"run_name": f"Preference_{persona['id']}"})
+
+def create_seller_runnable(property_config: Dict[str, Any]):
+    """Creates a runnable for the seller agent for a specific property."""
+    prompt = create_seller_prompt()
+    # Use .partial() to pre-fill the static parts of the prompt.
+    prompt = prompt.partial(
+        property_details=yaml.dump(property_config['details']),
+        format_instructions=seller_parser.get_format_instructions(),
+    )
+    chain = prompt | llm | seller_parser
+    return chain.with_config({"run_name": f"SellerAgent_{property_config['id']}"})
+
+def create_buyer_agent_runnable(persona: Dict[str, Any]):
+    """Creates a complete LangChain runnable for a single buyer agent."""
+    buyer_prompt_template = create_buyer_agent_prompt()
+    
+    chain = buyer_prompt_template | llm | action_parser
+    return chain.with_config({"run_name": f"Buyer_{persona['id']}"}) 
+
+========================================
+📄 END OF FILE: agents.py
+========================================
+
+========================================
+📄 START OF FILE: schemas.py
+========================================
+
+"""
+Pydantic schemas for the auction simulator.
+"""
+
+from typing import List, Dict, Any, Literal, Optional
+from pydantic import BaseModel, Field
+
+# --- Action and Response Schemas ---
+
+class Action(BaseModel):
+    """A buyer's action, which can be asking a question, bidding, or folding."""
+    action: Literal["ask", "bid", "call", "fold"]
+    property_id: Optional[str] = Field(None, description="The ID of the property this action applies to.")
+    amount: Optional[float] = Field(None, description="The amount to bid. Required for 'bid' action.")
+    question: Optional[str] = Field(None, description="The question to ask. Required for 'ask' action.")
+    commentary: str = Field(..., description="The reasoning behind the action.")
+
+class SellerResponse(BaseModel):
+    """A structured response from the seller to a buyer's question."""
+    answer: str = Field(description="The seller's direct answer to the question.")
+    commentary: str = Field(description="Brief commentary on the seller's thinking.")
+
+class Participation(BaseModel):
+    """A buyer's decision on which auctions to join, with commentary."""
+    auctions_to_join: List[str] = Field(..., description="A list of property IDs the buyer will participate in.")
+    commentary: str = Field(..., description="The reasoning behind the participation decision.")
+
+# --- State Management Schema ---
+
+class AuctionState(BaseModel):
+    """Manages the full state of a single auction for one property."""
+    config: Dict[str, Any]
+    property_id: str
+    round: int = 0
+    current_price: float
+    leading_bidder: Optional[str] = None
+    active_buyers: List[str]
+    round_had_bid: bool = False
+    history: List[str] = Field(default_factory=list)
+    winner: Optional[str] = None
+    final_price: Optional[float] = None
+    failure_reason: str = ""
+    event_log: List['Event'] = Field(default_factory=list)  # Stores all events for live streaming and analytics
+
+    # Pydantic models are immutable by default, so we need to allow mutation
+    class Config:
+        arbitrary_types_allowed = True
+
+    def get_state_summary(self) -> str:
+        """Creates a concise summary of the auction state for prompts."""
+        # Find the property details from the config
+        property_details = "Unknown Property"
+        for prop in self.config['environment']['properties']:
+            if prop['id'] == self.property_id:
+                property_details = prop['details']['address']
+                break
+
+        summary = [
+            f"This is Round {self.round} of a real estate auction for the property at {property_details}.",
+            f"Current Price: ${self.current_price:,.2f}",
+            f"Leading Bidder: {self.leading_bidder or 'None'}",
+            f"Active Buyers ({len(self.active_buyers)}): {', '.join(self.active_buyers)}",
+            "---",
+            "Recent History:",
+        ]
+        summary.extend(f"- {h}" for h in self.history[-5:])
+        return "\n".join(summary) 
+
+class Event(BaseModel):
+    """Represents a single event in the auction for logging and live streaming."""
+    ts: float
+    type: str
+    actor: str
+    payload: dict 
+
+========================================
+📄 END OF FILE: schemas.py
+========================================
+
+========================================
+📄 START OF FILE: prompts.py
+========================================
+
+"""
+Prompt templates for the auction agents.
+"""
+
+from langchain_core.prompts import ChatPromptTemplate
+
+def create_seller_prompt():
+    """Creates the prompt for the seller to answer a question."""
+    return ChatPromptTemplate.from_messages([
+        ("system", """You are the seller in a real estate auction. You must answer a buyer's question based *only* on the provided property information. Be honest but frame your answers to maintain interest in the property.
+
+        Property Information:
+        {property_details}
+
+        Do not invent information. If the answer is not in the property details, state that the information is not available.
+
+        Respond ONLY with the required JSON object.
+        {format_instructions}"""),
+        
+        ("human", "A buyer has asked the following question: '{question}'"),
+    ])
+
+def create_buyer_preference_prompt():
+    """Creates the prompt for a buyer to decide which auctions to join."""
+    return ChatPromptTemplate.from_messages([
+        ("system", """You are a potential buyer in a real estate market with multiple properties up for auction. Your task is to decide which auctions to participate in based on your persona and the property details.
+
+        Your persona is defined as:
+        {persona_summary}
+
+        Here are the properties available:
+        {properties_summary}
+
+        Based on your persona, decide which properties you are interested in. You can join one, multiple, or no auctions.
+
+        Respond ONLY with the required JSON object, including your reasoning in the commentary.
+        {format_instructions}
+        """),
+        ("human", "Review the properties and decide which auctions you will join."),
+    ])
+
+def create_buyer_agent_prompt():
+    """Creates the prompt template for a buyer agent for a specific auction."""
+    return ChatPromptTemplate.from_messages([
+        ("system", """You are a participant in a real estate auction for a specific property. Your goal is to win the auction if the price is right for your persona.
+
+        Your persona is defined as:
+        {persona_summary}
+
+        The property being auctioned is:
+        {property_details}
+
+        The current state of the auction is:
+        {state_summary}
+
+        {phase_instructions}
+
+        When asking a question, use the 'ask' action and populate the 'question' field.
+        When bidding or folding, the 'question' field must be null.
+
+        Respond ONLY with the required JSON object.
+        {format_instructions}
+        """),
+        
+        ("human", "Based on your persona and the auction state, what is your next action?"),
+    ]) 
+
+========================================
+📄 END OF FILE: prompts.py
+========================================
+
+========================================
+📄 START OF FILE: config.yaml
+========================================
+
+################################################################################
+# ⚙️ COMMON ENVIRONMENT SETTINGS
+# These parameters define the core auction environment and are used across all phases.
+################################################################################
+environment:
+  # Top-level auction rules
+  auction:
+    start_price: 80000       # Default start price, can be overridden per property
+    max_rounds: 3          # Safety limit for rounds in a single auction
+    bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
+
+  # ── MULTI-PROPERTY MARKET ──────────────────────────────
+  properties:
+    - id: P1_STARTER_HOME
+      details:
+        address: "404 Algorithm Ave, San José, CA"
+        bedrooms: 2
+        bathrooms: 1
+        size_sqft: 980
+        description: "Cozy ranch with upgraded wiring and solar roof."
+        condition: good          # good | excellent | fair | fixer
+      seller:
+        profile: DESPERATE       # tag for behavior logic
+        reserve_price_factor: 0.90   # 90 % of est. market value
+        bluff_tendency: 0.10
+      estimated_market_value: 110000 # More realistic market value
+    - id: P2_LUXURY_CONDO
+      details:
+        address: "55 Huggingface Blvd, Manhattan, NY"
+        bedrooms: 3
+        bathrooms: 2
+        size_sqft: 1500
+        hoa_fees: 1200
+        description: "High-floor condo with skyline views and concierge."
+        condition: excellent
+      seller:
+        profile: PATIENT
+        reserve_price_factor: 1.10
+        bluff_tendency: 0.60
+      estimated_market_value: 130000 # More realistic market value
+
+  # Buyer persona definitions
+  # These are the base definitions used for heuristic policies and as the foundation for RL agents.
+  buyers:
+    # B1: Cautious and prefers small, safe steps. Avoids risk.
+    - id: B1_CONSERVATIVE_INVESTOR
+      max_wtp: 110000
+      risk_aversion: 0.9
+      ask_prob: 0.05
+      requirements: "Wants a move-in ready property with no major repairs needed. Particularly concerned about foundation issues mentioned in the description."
+      ask_tendency: "cautious and focused on long-term value"
+    # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
+    - id: B2_AGGRESSIVE_TRADER
+      max_wtp: 140000
+      risk_aversion: 0.1
+      ask_prob: 0.0
+      requirements: "Primarily interested in resale value. Less concerned with minor cosmetic issues, but wants to know about anything that could affect a quick flip, like the foundation."
+      ask_tendency: "aggressive and looks for quick flips"
+    # B3: Prefers to gather information before acting.
+    - id: B3_ANALYTICAL_BUYER
+      max_wtp: 125000
+      risk_aversion: 0.6
+      ask_prob: 0.85
+      requirements: "Needs to see all inspection reports and understand any potential liabilities. Will ask specific questions about the foundation settling mentioned."
+      ask_tendency: "data-driven and asks very specific questions"
+    # B4: Has a very strict budget and will not exceed it under any circumstances.
+    - id: B4_BUDGET_CONSCIOUS
+      max_wtp: 105000
+      risk_aversion: 0.8
+      ask_prob: 0.0
+      requirements: "Looking for a good deal. Wants to know about potential upcoming maintenance costs, especially related to the foundation, that could impact their budget."
+      ask_tendency: "risk-averse and focused on price"
+    # B5: Prone to anxiety and bidding based on the actions of others.
+    - id: B5_FOMO_BIDDER
+      max_wtp: 130000
+      risk_aversion: 0.2
+      ask_prob: 0.0
+      requirements: "Easily swayed by property highlights like the 'newly renovated kitchen'. Wants reassurance that the foundation issue is not a major problem."
+      ask_tendency: "impulsive and easily swayed by competition"
+
+################################################################################
+# 🎲 PHASE 0/1 SETTINGS (HEURISTIC & MONTE CARLO)
+# Settings for rule-based policies used in Phase 0 (Smoke Test) and Phase 1 (Monte Carlo).
+################################################################################
+phase1_heuristic_settings:
+  # Persona variation settings for Monte Carlo analysis
+  persona_variation:
+    enabled: true           # Set to false for completely deterministic personas
+    max_wtp_variance: 0.1  # ±10% variation in max willingness to pay
+    risk_aversion_variance: 0.20  # ±0.20 variation in risk aversion (0.0-1.0 scale)
+    ask_prob_variance: 0.10 # ±10% relative variation in ask probability
+
+################################################################################
+# 🤖 PHASE 2 SETTINGS (REINFORCEMENT LEARNING)
+# Hyperparameters for the PPO algorithm used in Phase 2.
+################################################################################
+phase2_rl_settings:
+  gamma: 0.99           # Discount factor for future rewards
+  gae_lambda: 0.95      # Lambda for Generalized Advantage Estimation
+  lr: 0.0003            # Learning rate for the Adam optimizer
+  clip_epsilon: 0.2     # PPO clipping parameter
+  ppo_epochs: 10        # Number of epochs to train on the data per update
+  batch_size: 32        # Minibatch size for PPO updates
+  vf_coef: 0.5          # Value function loss coefficient
+  ent_coef: 0.01        # Entropy bonus coefficient (for exploration)
+  max_grad_norm: 0.5    # Maximum norm for gradient clipping
+  seed: 42              # Random seed for reproducibility 
+
+========================================
+📄 END OF FILE: config.yaml
+========================================
+
+========================================
+📄 START OF FILE: config_utils.py
+========================================
+
+"""
+Utility functions for the auction simulator.
+"""
+
+import yaml
+from typing import Dict, Any
+
+def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
+    """Load configuration from YAML file."""
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f) 
+
+========================================
+📄 END OF FILE: config_utils.py
+========================================
