@@ -50,7 +50,7 @@ def create_buyer_agent_prompt():
         The property being auctioned is:
         {property_details}
 
-        The current state of the auction is:
+        The current state of the auction is provided in the following JSON block:
         {state_summary}
 
         {phase_instructions}

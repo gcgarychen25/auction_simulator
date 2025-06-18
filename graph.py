@@ -154,16 +154,18 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
     print(f"  --- Bidding Actions ({state.property_id}) ---")
     for buyer_id, action in bidding_actions.items():
         event_type = action.action
-        log_payload = {"property_id": state.property_id}
+        log_payload = {"property_id": state.property_id, "commentary": action.commentary}
         
+        commentary_str = f"({action.commentary})"
+
         if event_type == 'bid':
             amount_str = f"${action.amount:,.2f}" if action.amount is not None else "an invalid amount"
-            print(f"  - {buyer_id}: BIDS {amount_str}")
+            print(f"  - {buyer_id}: BIDS {amount_str} {commentary_str}")
             log_payload["amount"] = action.amount
         elif event_type == 'fold':
-            print(f"  - {buyer_id}: FOLDS")
+            print(f"  - {buyer_id}: FOLDS {commentary_str}")
         elif event_type == 'call':
-            print(f"  - {buyer_id}: CALLS")
+            print(f"  - {buyer_id}: CALLS {commentary_str}")
         
         if event_type in ["bid", "fold", "call"]:
              await event_bus.log(Event(ts=time.time(), type=event_type, actor=buyer_id, payload=log_payload), state=state)

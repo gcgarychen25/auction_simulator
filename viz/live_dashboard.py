@@ -97,11 +97,15 @@ else:
                         st.markdown(f"**{actor}**")
                         bid_amount = payload.get('amount', 0)
                         st.markdown(f"I bid **${bid_amount:,.2f}**")
+                        if "commentary" in payload:
+                            st.markdown(f"_{payload['commentary']}_")
                 
                 elif event_type == "CALL":
                     with st.chat_message(name=short_name, avatar=avatar):
                         st.markdown(f"**{actor}**")
                         st.markdown(f"Calls.")
+                        if "commentary" in payload:
+                            st.markdown(f"_{payload['commentary']}_")
 
                 elif event_type == "QA_PAIR":
                     # Render the buyer's question
@@ -116,6 +120,8 @@ else:
                 elif event_type == "FOLD":
                     with st.chat_message(name=short_name, avatar=avatar):
                         st.markdown(f"**{actor}** folds.")
+                        if "commentary" in payload:
+                            st.markdown(f"_{payload['commentary']}_")
                 elif event_type == "AUCTION_END":
                     winner = payload.get('winner')
                     final_price = payload.get('final_price')
