@@ -5,21 +5,39 @@
 environment:
   # Top-level auction rules
   auction:
-    start_price: 80000       # Start below reserve to allow rejection scenarios
+    start_price: 80000       # Default start price, can be overridden per property
     max_rounds: 3          # Safety limit for rounds in a single auction
     bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
 
-  # Seller-specific parameters
-  seller:
-    reserve_price: 100000 # Private price below which the seller will not sell
-
-  # Property information for prompts
-  property:
-    address: "123 Data Point Lane, Silicon Valley, CA 94304"
-    bedrooms: 4
-    bathrooms: 3
-    size_sqft: 2200
-    description: "A beautifully maintained mid-century modern home in a prime location. Features an open-concept living area, a large backyard with a deck perfect for entertaining, and a newly renovated kitchen with smart appliances. The property is situated in a quiet, family-friendly neighborhood with excellent schools and easy access to major tech campuses. Minor foundation settling noted in the last inspection, report available on request."
+  # ── MULTI-PROPERTY MARKET ──────────────────────────────
+  properties:
+    - id: P1_STARTER_HOME
+      details:
+        address: "404 Algorithm Ave, San José, CA"
+        bedrooms: 2
+        bathrooms: 1
+        size_sqft: 980
+        description: "Cozy ranch with upgraded wiring and solar roof."
+        condition: good          # good | excellent | fair | fixer
+      seller:
+        profile: DESPERATE       # tag for behavior logic
+        reserve_price_factor: 0.90   # 90 % of est. market value
+        bluff_tendency: 0.10
+      estimated_market_value: 110000 # More realistic market value
+    - id: P2_LUXURY_CONDO
+      details:
+        address: "55 Huggingface Blvd, Manhattan, NY"
+        bedrooms: 3
+        bathrooms: 2
+        size_sqft: 1500
+        hoa_fees: 1200
+        description: "High-floor condo with skyline views and concierge."
+        condition: excellent
+      seller:
+        profile: PATIENT
+        reserve_price_factor: 1.10
+        bluff_tendency: 0.60
+      estimated_market_value: 130000 # More realistic market value
 
   # Buyer persona definitions
   # These are the base definitions used for heuristic policies and as the foundation for RL agents.

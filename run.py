@@ -87,19 +87,21 @@ async def main():
         console.print("[bold yellow]🚀 Running Multi-Agent Simulation...[/bold yellow]")
         
         config = load_config(args.config)
-        final_state = await run_auction_episode(config, live=args.live)
+        final_states = await run_auction_episode(config, live=args.live)
         
         print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
         
-        final_price_str = f"${final_state.final_price:,.2f}" if final_state.final_price is not None else "N/A"
+        for final_state in final_states:
+            final_price_str = f"${final_state.final_price:,.2f}" if final_state.final_price is not None else "N/A"
+            title = f"[bold]Auction Results for {final_state.property_id}[/bold]"
 
-        console.print(Panel(
-            f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
-            f"[bold green]Final Price:[/bold green] {final_price_str}\n"
-            f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
-            title="[bold]Auction Results[/bold]",
-            expand=False
-        ))
+            console.print(Panel(
+                f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
+                f"[bold green]Final Price:[/bold green] {final_price_str}\n"
+                f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
+                title=title,
+                expand=False
+            ))
 
     except Exception as e:
         logger.error(f"❌ An error occurred during the main execution: {e}")

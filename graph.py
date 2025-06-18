@@ -3,13 +3,19 @@ Auction orchestration using LangGraph.
 """
 
 import asyncio
+import yaml
 from typing import Dict, Any, List, TypedDict, Annotated
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-from schemas import AuctionState, Action, SellerResponse, Event
-from agents import create_buyer_agent_runnable, create_seller_runnable, action_parser
+from schemas import AuctionState, Action, SellerResponse, Event, Participation
+from agents import (
+    create_buyer_agent_runnable,
+    create_seller_runnable,
+    action_parser,
+    create_buyer_preference_runnable
+)
 from utils.event_bus import EventBus
 import time
 
@@ -17,13 +23,13 @@ import time
 
 class GraphState(TypedDict):
     """
-    Represents the state of our graph.
+    Represents the state of our graph for a single auction.
     
     Attributes:
-        state: The full auction state.
+        state: The full auction state for one property.
         agent_runnables: A dictionary of all buyer agent runnables.
-        seller_runnable: The seller agent runnable.
-        messages: A list of messages for communication between nodes (not used here).
+        seller_runnable: The seller agent runnable for the specific property.
+        messages: A list of messages for communication between nodes.
         event_bus: The event bus for logging events.
     """
     state: AuctionState
@@ -45,10 +51,12 @@ async def _handle_buyer_question(
 ) -> Action:
     """Handles a single buyer's question, gets an answer, logs it, and returns the action."""
     persona = next(p for p in state.config['environment']['buyers'] if p['id'] == buyer_id)
-    
+    property_details = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)['details']
+
     # Let the buyer agent decide whether to ask a question
     action = await agent_runnable.ainvoke({
         "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, Tendency: {persona['ask_tendency']}",
+        "property_details": yaml.dump(property_details),
         "state_summary": state.get_state_summary(),
         "phase_instructions": "It is the Q&A phase. You can 'ask' a question or 'fold'.",
         "format_instructions": action_parser.get_format_instructions(),
@@ -64,11 +72,11 @@ async def _handle_buyer_question(
             ts=time.time(), 
             type="qa_pair", 
             actor=buyer_id, 
-            payload={"question": action.question, "answer": answer_text}
+            payload={"property_id": state.property_id, "question": action.question, "answer": answer_text}
         ), state=state)
         
         print(f"  - {buyer_id}: ASK ({action.commentary})\n     L> Q: {action.question}\n     L> A: {answer_text.strip()}")
-        state.history.append(f"Q&A Round {state.round}: {buyer_id} asked '{action.question}' -> Answered.")
+        state.history.append(f"Q&A Round {state.round} on {state.property_id}: {buyer_id} asked '{action.question}' -> Answered.")
 
     return action
 
@@ -80,7 +88,7 @@ async def qa_phase_node(graph_state: GraphState) -> Dict[str, Any]:
     seller_runnable = graph_state['seller_runnable']
     
     state.round += 1
-    print(f"\n\n--- Round {state.round} ---")
+    print(f"\n\n--- Round {state.round} ({state.property_id}) ---")
     print("--- Phase: Q&A (Parallel) ---")
 
     buyer_tasks = [
@@ -99,12 +107,12 @@ async def qa_phase_node(graph_state: GraphState) -> Dict[str, Any]:
         buyer_actions_list = await asyncio.gather(*buyer_tasks)
         buyer_actions = dict(zip(state.active_buyers, buyer_actions_list))
     except Exception as e:
-        print(f"🚨 Error during Q&A phase: {e}")
+        print(f"🚨 Error during Q&A phase on {state.property_id}: {e}")
         buyer_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
 
     folded_buyers = {buyer_id for buyer_id, action in buyer_actions.items() if action.action == 'fold'}
     if folded_buyers:
-        print(f"  Folding in Q&A: {', '.join(folded_buyers)}")
+        print(f"  Folding in Q&A on {state.property_id}: {', '.join(folded_buyers)}")
         state.active_buyers = [b for b in state.active_buyers if b not in folded_buyers]
     
     return {"state": state}
@@ -114,7 +122,7 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
     """Node for the bidding phase."""
     state = graph_state['state']
     event_bus = graph_state['event_bus']
-    print("\n--- Phase: Bidding ---")
+    print(f"\n--- Phase: Bidding ({state.property_id}) ---")
     bidding_instructions = (
         "It is the Bidding phase. You can 'bid' to raise the price, "
         "'call' to match the current price and stay in, or 'fold' to exit the auction. "
@@ -122,11 +130,13 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
     )
     
     tasks = []
+    property_details = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)['details']
     for buyer_id in state.active_buyers:
         persona = next(b for b in state.config['environment']['buyers'] if b['id'] == buyer_id)
         runnable = graph_state['agent_runnables'][buyer_id]
         task = runnable.ainvoke({
              "persona_summary": f"ID: {persona['id']}, Max WTP: ${persona['max_wtp']:,}, ...",
+             "property_details": yaml.dump(property_details),
              "state_summary": state.get_state_summary(),
              "phase_instructions": bidding_instructions,
              "format_instructions": action_parser.get_format_instructions(),
@@ -137,27 +147,24 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
         bidding_actions_list = await asyncio.gather(*tasks)
         bidding_actions = dict(zip(state.active_buyers, bidding_actions_list))
     except Exception as e:
-        print(f"🚨 Error during bidding: {e}")
+        print(f"🚨 Error during bidding on {state.property_id}: {e}")
         bidding_actions = {b_id: Action(action="fold", commentary=f"Error: {e}") for b_id in state.active_buyers}
 
     # Log and print all actions for visualization and terminal output
-    print("  --- Bidding Actions ---")
+    print(f"  --- Bidding Actions ({state.property_id}) ---")
     for buyer_id, action in bidding_actions.items():
         event_type = action.action
-        log_payload = {}
+        log_payload = {"property_id": state.property_id}
         
         if event_type == 'bid':
-            # Ensure amount is not None before formatting
             amount_str = f"${action.amount:,.2f}" if action.amount is not None else "an invalid amount"
             print(f"  - {buyer_id}: BIDS {amount_str}")
-            log_payload = {"amount": action.amount}
+            log_payload["amount"] = action.amount
         elif event_type == 'fold':
             print(f"  - {buyer_id}: FOLDS")
         elif event_type == 'call':
             print(f"  - {buyer_id}: CALLS")
         
-        # Log to event bus for streamlit
-        # This check is good practice, although the agent should only be choosing from bid, call, or fold in this phase
         if event_type in ["bid", "fold", "call"]:
              await event_bus.log(Event(ts=time.time(), type=event_type, actor=buyer_id, payload=log_payload), state=state)
 
@@ -172,7 +179,7 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
         highest_bidder = max(valid_bids, key=lambda k: valid_bids[k].amount)
         state.leading_bidder = highest_bidder
         state.current_price = valid_bids[highest_bidder].amount
-        log_msg = f"Round {state.round} Bidding: New high bid of ${state.current_price:,.2f} from {state.leading_bidder}."
+        log_msg = f"Round {state.round} Bidding on {state.property_id}: New high bid of ${state.current_price:,.2f} from {state.leading_bidder}."
         print(f"\n{log_msg}")
         state.history.append(log_msg)
 
@@ -185,22 +192,16 @@ async def bidding_phase_node(graph_state: GraphState) -> Dict[str, Any]:
 # --- Conditional Edges ---
 
 def should_continue(graph_state: GraphState) -> str:
-    """
-    Determine whether to continue the auction or end.
-    The auction ends if:
-    1. Only one or zero buyers are left.
-    2. A full round of bidding occurred with no new bids (everyone 'called' or 'folded').
-    3. The maximum number of rounds is reached.
-    """
+    """Determine whether to continue the auction or end."""
     state = graph_state['state']
     if len(state.active_buyers) <= 1:
-        print("\n--- Condition Met: Auction ending due to lack of bidders. ---")
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending due to lack of bidders. ---")
         return "end"
-    if not state.round_had_bid and state.round > 1: # No bids in the round (after the first)
-        print("\n--- Condition Met: Auction ending because bidding has stabilized. ---")
+    if not state.round_had_bid and state.round > 0:
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending because bidding has stabilized. ---")
         return "end"
     if state.round >= state.config['environment']['auction']['max_rounds']:
-        print("\n--- Condition Met: Auction ending due to reaching max rounds. ---")
+        print(f"\n--- Condition Met ({state.property_id}): Auction ending due to reaching max rounds. ---")
         return "end"
         
     return "continue"
@@ -208,24 +209,30 @@ def should_continue(graph_state: GraphState) -> str:
 def finalize_auction_node(graph_state: GraphState) -> Dict[str, Any]:
     """Finalizes the auction, determining winner or failure reason."""
     state = graph_state['state']
-    reserve_price = state.config['environment']['seller']['reserve_price']
     
+    # Find the property to get the seller's reserve price factor
+    prop_config = next(p for p in state.config['environment']['properties'] if p['id'] == state.property_id)
+    # Use the explicit estimated market value from the config
+    estimated_market_value = prop_config['estimated_market_value']
+    reserve_price = estimated_market_value * prop_config['seller']['reserve_price_factor']
+
     if state.leading_bidder and state.current_price >= reserve_price:
         state.winner = state.leading_bidder
         state.final_price = state.current_price
-        state.history.append(f"Conclusion: SOLD to {state.winner} for ${state.final_price:,.2f}.")
+        state.history.append(f"Conclusion for {state.property_id}: SOLD to {state.winner} for ${state.final_price:,.2f}.")
     else:
-        state.failure_reason = "No valid bids met the reserve price."
-        state.history.append(f"Conclusion: FAILED. {state.failure_reason}")
+        reason = "Reserve price not met." if state.leading_bidder else "No valid bids were placed."
+        state.failure_reason = f"Failed to sell. {reason}"
+        state.history.append(f"Conclusion for {state.property_id}: FAILED. {state.failure_reason}")
     
-    print(f"--- AUCTION ENDED: {state.history[-1]} ---")
+    print(f"--- AUCTION ENDED ({state.property_id}): {state.history[-1]} ---")
     return {"state": state}
 
 
 # --- Graph Definition ---
 
 def build_graph():
-    """Builds the LangGraph for the auction."""
+    """Builds the LangGraph for a single property auction."""
     workflow = StateGraph(GraphState)
 
     workflow.add_node("qa_phase", qa_phase_node)
@@ -250,46 +257,95 @@ def build_graph():
 
 # --- Main Orchestration Function ---
 
-async def run_auction_episode(config: Dict[str, Any], live: bool = False):
-    """Runs a full auction episode using the LangGraph orchestrator."""
-    
-    # Initial state setup
+async def run_auction_episode(config: Dict[str, Any], live: bool = False) -> List[AuctionState]:
+    """
+    Runs a full market episode with multiple auctions, one for each property.
+    1. Buyers reflect and choose which auctions to join.
+    2. Auctions are run sequentially for each property.
+    """
     event_bus = EventBus(live=live)
     env_config = config['environment']
-    initial_state = AuctionState(
-        config=config,
-        current_price=env_config['auction']['start_price'],
-        active_buyers=[b['id'] for b in env_config['buyers']],
-    )
-    # Add event_log to state if not present
-    if not hasattr(initial_state, 'event_log'):
-        initial_state.event_log = []
     
-    # Agent setup
-    buyer_runnables = {
-        buyer['id']: create_buyer_agent_runnable(buyer)
-        for buyer in config['environment']['buyers']
+    # --- 1. Buyer Reflection and Participation Choice ---
+    print("--- 📢 Market Announcement & Buyer Reflection 📢 ---")
+    properties_summary = yaml.dump([
+        {"id": p['id'], **p['details']} for p in env_config['properties']
+    ])
+    
+    preference_tasks = []
+    for buyer_persona in env_config['buyers']:
+        runnable = create_buyer_preference_runnable(buyer_persona)
+        task = runnable.ainvoke({"properties_summary": properties_summary})
+        preference_tasks.append(task)
+        
+    participation_results: List[Participation] = await asyncio.gather(*preference_tasks)
+    
+    participation_map = {
+        buyer['id']: result.auctions_to_join
+        for buyer, result in zip(env_config['buyers'], participation_results)
     }
-    seller_runnable = create_seller_runnable(config)
+
+    print("\n--- 📝 Buyer Participation Intentions ---")
+    for buyer_id, property_ids in participation_map.items():
+        print(f"  - {buyer_id} will join auctions for: {', '.join(property_ids) or 'None'}")
     
+    # --- 2. Run Auctions Sequentially for Each Property ---
+    final_states = []
     graph = build_graph()
 
-    # Initial inputs for the graph
-    inputs = {
-        "state": initial_state,
-        "agent_runnables": buyer_runnables,
-        "seller_runnable": seller_runnable,
-        "messages": [],
-        "event_bus": event_bus,
-    }
-    
-    print("--- 🚀 Starting New Auction Episode 🚀 ---")
-    # Instrumentation: emit auction_start event
-    await event_bus.log(Event(ts=time.time(), type="auction_start", actor="system", payload={"config": config}), state=initial_state)
-    final_graph_state = await graph.ainvoke(inputs)
-    
-    # Instrumentation: emit auction_end event
-    await event_bus.log(Event(ts=time.time(), type="auction_end", actor="system", payload={"winner": final_graph_state['state'].winner, "final_price": final_graph_state['state'].final_price, "failure_reason": final_graph_state['state'].failure_reason}), state=final_graph_state['state'])
-    return final_graph_state['state'] 
+    for prop in env_config['properties']:
+        property_id = prop['id']
+        print(f"\n\n--- 🚀 Starting Auction for Property: {property_id} 🚀 ---")
+
+        # Determine active buyers for this specific auction
+        active_buyers_for_this_auction = [
+            b_id for b_id, p_ids in participation_map.items() if property_id in p_ids
+        ]
+        
+        if not active_buyers_for_this_auction:
+            print(f"--- ⏩ Skipping auction for {property_id}: No buyers interested. ---")
+            # Create a dummy final state for reporting
+            final_states.append(AuctionState(
+                config=config,
+                property_id=property_id,
+                current_price=env_config['auction']['start_price'],
+                active_buyers=[],
+                failure_reason="No buyers participated."
+            ))
+            continue
+
+        # Initial state setup for this specific auction
+        initial_state = AuctionState(
+            config=config,
+            property_id=property_id,
+            current_price=env_config['auction']['start_price'],
+            active_buyers=active_buyers_for_this_auction,
+        )
+        
+        # Agent setup for this auction
+        buyer_runnables = {
+            buyer['id']: create_buyer_agent_runnable(buyer)
+            for buyer in env_config['buyers'] if buyer['id'] in active_buyers_for_this_auction
+        }
+        seller_runnable = create_seller_runnable(prop)
+        
+        # Initial inputs for the graph
+        inputs = {
+            "state": initial_state,
+            "agent_runnables": buyer_runnables,
+            "seller_runnable": seller_runnable,
+            "messages": [],
+            "event_bus": event_bus,
+        }
+        
+        await event_bus.log(Event(ts=time.time(), type="auction_start", actor="system", payload={"config": config, "property_id": property_id}), state=initial_state)
+        
+        final_graph_state = await graph.ainvoke(inputs)
+        final_state = final_graph_state['state']
+        final_states.append(final_state)
+        
+        await event_bus.log(Event(ts=time.time(), type="auction_end", actor="system", payload={"property_id": property_id, "winner": final_state.winner, "final_price": final_state.final_price, "failure_reason": final_state.failure_reason}), state=final_state)
+        
+    return final_states
 
 # TODO: Instrument bid, ask, fold, and chat events throughout the graph nodes for full live streaming support. 
