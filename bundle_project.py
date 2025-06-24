@@ -44,7 +44,9 @@ if __name__ == "__main__":
         "schemas.py",
         "prompts.py",
         "config.yaml",
-        "config_utils.py"
+        "config_utils.py",
+        "viz/live_dashboard.py",
+        "utils/event_bus.py"
     ]
     
     bundle_project_files(files_to_bundle) 
