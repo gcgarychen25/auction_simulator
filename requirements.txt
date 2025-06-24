@@ -32,3 +32,8 @@ streamlit>=1.32
 websockets
 plotly
 langchain-openai 
+rich
+langgraph
+langchain_google_genai
+langchain
+pydantic 

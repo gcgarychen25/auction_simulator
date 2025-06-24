@@ -1,0 +1,34 @@
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Logs and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cursor-cache/
+
+# Environment
+.env
+env/
+venv/
+.venv/
+
+# Documentation
+README.md
+project_progress.md
+simulation_log.txt
+project_bundle.txt
+SECURITY.md
+
+# Tests
+tests/ 
