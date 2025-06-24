@@ -4,3 +4,11 @@ Always keep the code as concise as possible.
 
 Update the project progress to project_progress.md every 5 changes to the repo. 
 
+
+<repo_specific_rule description="This is a rule set by the user about the repository that the agent must follow">
+Standard Git Workflow:
+1. For any new feature or bug fix, create a new feature branch from an up-to-date main branch (e.g., `git checkout -b new-feature`).
+2. Once work is complete, open a pull request to merge the feature branch into the main branch.
+3. After the pull request is merged, switch back to your local main branch, pull the latest changes, and then delete the now-merged local feature branch (e.g., `git checkout main && git pull origin main && git branch -d new-feature`).
+</repo_specific_rule>
+
