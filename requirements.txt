@@ -1,34 +1,30 @@
-# Core dependencies for Phase 0
-gymnasium>=0.29.0
-numpy>=1.24.0
-pyyaml>=6.0
-pandas>=2.0.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
+# Core dependencies
+pydantic>=2.0.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langgraph>=0.1.0
+openai>=1.0.0
 
-# Async HTTP client for LLM API calls
-httpx>=0.25.0
-
-# Environment variables support
+# Configuration and utilities
+PyYAML>=6.0
 python-dotenv>=1.0.0
 
-# Jupyter notebook support
-jupyter>=1.0.0
-ipywidgets>=8.0.0
-IPython>=8.0.0
+# Async support
+asyncio
+aiofiles
 
-# Optional dependencies for future phases
-# Uncomment when ready for Phase 2 (RL):
-# stable-baselines3>=2.0.0
-# torch>=2.0.0
+# Data handling
+numpy>=1.24.0
+pandas>=2.0.0
 
-# Development and testing (optional)
-# pytest>=7.0.0
-# black>=23.0.0
-# flake8>=6.0.0 
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
 
-# New dependencies
-streamlit>=1.32
-websockets
-plotly
-langchain-openai 
+# Optional: MCP support (when available)
+# mcp-client  # Uncomment when MCP Python SDK is available
+
+# Development
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0 

@@ -1,64 +1,117 @@
 """
-Agent definitions for the auction simulator.
+Agent LLM runnables for the auction simulator.
 """
 
-import os
-import yaml
-from typing import Dict, Any
-
-from langchain_core.output_parsers.pydantic import PydanticOutputParser
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-
-from schemas import Action, SellerResponse, Participation
-from prompts import create_seller_prompt, create_buyer_agent_prompt, create_buyer_preference_prompt
-
-# --- LLM and Parser Setup ---
-
-def get_llm():
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
-    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
-    if openai_api_key:
-        return ChatOpenAI(model=openai_model, openai_api_key=openai_api_key, temperature=temperature)
-    elif gemini_api_key:
-        return ChatGoogleGenerativeAI(model=gemini_model, google_api_key=gemini_api_key, temperature=temperature)
-    else:
-        raise ValueError("No LLM API key found. Set either OPENAI_API_KEY or GEMINI_API_KEY in your environment.")
-
-llm = get_llm()
-action_parser = PydanticOutputParser(pydantic_object=Action)
-seller_parser = PydanticOutputParser(pydantic_object=SellerResponse)
-participation_parser = PydanticOutputParser(pydantic_object=Participation)
+from typing import Dict, Any, List
+from langchain.prompts import PromptTemplate
+from langchain.schema.output_parser import StrOutputParser
+from langchain.chat_models import ChatOpenAI
+from langchain.output_parsers import PydanticOutputParser
+from schemas import Action
 
 
-# --- Agent Runnable Definitions ---
+# Agent prompt template as specified in design doc
+AGENT_PROMPT_TEMPLATE = """SYSTEM:
+You are an autonomous auction participant. Use tools to achieve the best outcome.
 
-def create_buyer_preference_runnable(persona: Dict[str, Any]):
-    """Creates a runnable for a buyer to decide which auctions to join."""
-    prompt = create_buyer_preference_prompt().partial(
-        persona_summary=yaml.dump(persona),
-        format_instructions=participation_parser.get_format_instructions()
-    )
-    return (prompt | llm | participation_parser).with_config({"run_name": f"Preference_{persona['id']}"})
+Context:
+{context}
 
-def create_seller_runnable(property_config: Dict[str, Any]):
-    """Creates a runnable for the seller agent for a specific property."""
-    prompt = create_seller_prompt()
-    # Use .partial() to pre-fill the static parts of the prompt.
-    prompt = prompt.partial(
-        property_details=yaml.dump(property_config['details']),
-        format_instructions=seller_parser.get_format_instructions(),
-    )
-    chain = prompt | llm | seller_parser
-    return chain.with_config({"run_name": f"SellerAgent_{property_config['id']}"})
+Last observation:
+{observation}
 
-def create_buyer_agent_runnable(persona: Dict[str, Any]):
-    """Creates a complete LangChain runnable for a single buyer agent."""
-    buyer_prompt_template = create_buyer_agent_prompt()
+Available tools:
+• BID – Place a bid with specified amount (must be higher than current price)
+• CALL – Stay in auction at current price
+• FOLD – Withdraw from auction
+• ASK_SELLER – Ask the seller a question about the property
+• STATUS – Get current auction status
+• CHECK_TERMINATION – Check if auction should end
+• FINISH – End your participation
+
+Respond ONLY with JSON:
+{{
+ "tool": "<TOOL_NAME | FINISH>",
+ "args": {{ ... }},
+ "commentary": "<short rationale>"
+}}
+
+Remember:
+- You want to win valuable properties at good prices
+- Don't overbid beyond reasonable value
+- Use ASK_SELLER to gather information before making decisions
+- CHECK_TERMINATION to understand auction status
+- When ready to stop, use FINISH"""
+
+
+class BuyerAgent:
+    """Buyer agent using LLM for decision making."""
     
-    chain = buyer_prompt_template | llm | action_parser
-    return chain.with_config({"run_name": f"Buyer_{persona['id']}"}) 
+    def __init__(self, model_name: str = "gpt-3.5-turbo", buyer_profile: Dict[str, Any] = None):
+        self.llm = ChatOpenAI(model_name=model_name, temperature=0.7)
+        self.profile = buyer_profile or {}
+        
+        # Set up prompt and parser
+        self.prompt = PromptTemplate(
+            template=AGENT_PROMPT_TEMPLATE,
+            input_variables=["context", "observation"]
+        )
+        self.parser = PydanticOutputParser(pydantic_object=Action)
+        
+        # Create the runnable chain
+        self.runnable = self.prompt | self.llm | StrOutputParser()
+    
+    async def invoke(self, context: List[str], observation: str = None) -> str:
+        """
+        Invoke the buyer agent.
+        
+        Args:
+            context: List of context strings (conversation history)
+            observation: Last observation from tool execution
+            
+        Returns:
+            Raw LLM response (should be JSON)
+        """
+        context_str = "\n".join(context) if context else "Auction starting..."
+        observation_str = observation or "Auction beginning"
+        
+        response = await self.runnable.ainvoke({
+            "context": context_str,
+            "observation": observation_str
+        })
+        
+        return response
+    
+    def get_profile_context(self) -> str:
+        """Get buyer profile as context string."""
+        if not self.profile:
+            return "Buyer profile: Standard buyer"
+        
+        profile_parts = []
+        if "budget" in self.profile:
+            profile_parts.append(f"Budget: ${self.profile['budget']:,.2f}")
+        if "strategy" in self.profile:
+            profile_parts.append(f"Strategy: {self.profile['strategy']}")
+        if "preferences" in self.profile:
+            prefs = self.profile["preferences"]
+            if isinstance(prefs, dict):
+                pref_strs = [f"{k}: {v}" for k, v in prefs.items()]
+                profile_parts.append(f"Preferences: {', '.join(pref_strs)}")
+        
+        return f"Buyer profile: {'; '.join(profile_parts)}"
+
+
+def create_buyer_agent(config: Dict[str, Any]) -> BuyerAgent:
+    """
+    Factory function to create a buyer agent from config.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Configured BuyerAgent instance
+    """
+    model_name = config.get("model_name", "gpt-3.5-turbo")
+    buyer_profile = config.get("buyer_profile", {})
+    
+    return BuyerAgent(model_name=model_name, buyer_profile=buyer_profile) 

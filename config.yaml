@@ -1,107 +1,65 @@
-################################################################################
-# ⚙️ COMMON ENVIRONMENT SETTINGS
-# These parameters define the core auction environment and are used across all phases.
-################################################################################
-environment:
-  # Top-level auction rules
-  auction:
-    start_price: 80000       # Default start price, can be overridden per property
-    max_rounds: 3          # Safety limit for rounds in a single auction
-    bid_limit_per_buyer: 3  # Each buyer can only place 3 raising bids
+# Hybrid LangGraph + MCP Configuration
 
-  # ── MULTI-PROPERTY MARKET ──────────────────────────────
-  properties:
-    - id: P1_STARTER_HOME
-      details:
-        address: "404 Algorithm Ave, San José, CA"
-        bedrooms: 2
-        bathrooms: 1
-        size_sqft: 980
-        description: "Cozy ranch with upgraded wiring and solar roof."
-        condition: good          # good | excellent | fair | fixer
-      seller:
-        profile: DESPERATE       # tag for behavior logic
-        reserve_price_factor: 0.90   # 90 % of est. market value
-        bluff_tendency: 0.10
-      estimated_market_value: 110000 # More realistic market value
-    - id: P2_LUXURY_CONDO
-      details:
-        address: "55 Huggingface Blvd, Manhattan, NY"
-        bedrooms: 3
-        bathrooms: 2
-        size_sqft: 1500
-        hoa_fees: 1200
-        description: "High-floor condo with skyline views and concierge."
-        condition: excellent
-      seller:
-        profile: PATIENT
-        reserve_price_factor: 1.10
-        bluff_tendency: 0.60
-      estimated_market_value: 130000 # More realistic market value
+# LLM Configuration
+llm:
+  model_name: "gpt-3.5-turbo"
+  temperature: 0.7
+  max_tokens: 1000
 
-  # Buyer persona definitions
-  # These are the base definitions used for heuristic policies and as the foundation for RL agents.
-  buyers:
-    # B1: Cautious and prefers small, safe steps. Avoids risk.
-    - id: B1_CONSERVATIVE_INVESTOR
-      max_wtp: 110000
-      risk_aversion: 0.9
-      ask_prob: 0.05
-      requirements: "Wants a move-in ready property with no major repairs needed. Particularly concerned about foundation issues mentioned in the description."
-      ask_tendency: "cautious and focused on long-term value"
-    # B2: Makes large, aggressive bids to intimidate others. Aims for a quick win.
-    - id: B2_AGGRESSIVE_TRADER
-      max_wtp: 140000
-      risk_aversion: 0.1
-      ask_prob: 0.0
-      requirements: "Primarily interested in resale value. Less concerned with minor cosmetic issues, but wants to know about anything that could affect a quick flip, like the foundation."
-      ask_tendency: "aggressive and looks for quick flips"
-    # B3: Prefers to gather information before acting.
-    - id: B3_ANALYTICAL_BUYER
-      max_wtp: 125000
-      risk_aversion: 0.6
-      ask_prob: 0.85
-      requirements: "Needs to see all inspection reports and understand any potential liabilities. Will ask specific questions about the foundation settling mentioned."
-      ask_tendency: "data-driven and asks very specific questions"
-    # B4: Has a very strict budget and will not exceed it under any circumstances.
-    - id: B4_BUDGET_CONSCIOUS
-      max_wtp: 105000
-      risk_aversion: 0.8
-      ask_prob: 0.0
-      requirements: "Looking for a good deal. Wants to know about potential upcoming maintenance costs, especially related to the foundation, that could impact their budget."
-      ask_tendency: "risk-averse and focused on price"
-    # B5: Prone to anxiety and bidding based on the actions of others.
-    - id: B5_FOMO_BIDDER
-      max_wtp: 130000
-      risk_aversion: 0.2
-      ask_prob: 0.0
-      requirements: "Easily swayed by property highlights like the 'newly renovated kitchen'. Wants reassurance that the foundation issue is not a major problem."
-      ask_tendency: "impulsive and easily swayed by competition"
+# Tool Backend Configuration
+tools:
+  BID: local
+  CALL: local
+  FOLD: local
+  STATUS: local
+  CHECK_TERMINATION: local
+  ASK_SELLER: mcp
 
-################################################################################
-# 🎲 PHASE 0/1 SETTINGS (HEURISTIC & MONTE CARLO)
-# Settings for rule-based policies used in Phase 0 (Smoke Test) and Phase 1 (Monte Carlo).
-################################################################################
-phase1_heuristic_settings:
-  # Persona variation settings for Monte Carlo analysis
-  persona_variation:
-    enabled: true           # Set to false for completely deterministic personas
-    max_wtp_variance: 0.1  # ±10% variation in max willingness to pay
-    risk_aversion_variance: 0.20  # ±0.20 variation in risk aversion (0.0-1.0 scale)
-    ask_prob_variance: 0.10 # ±10% relative variation in ask probability
+# MCP Configuration
+mcp:
+  servers:
+    ask_seller:
+      transport: "unix_socket"
+      path: "/tmp/ask_seller.sock"
+  
+# Auction Configuration
+auction:
+  max_rounds: 50
+  starting_increment: 5000
+  min_increment: 1000
 
-################################################################################
-# 🤖 PHASE 2 SETTINGS (REINFORCEMENT LEARNING)
-# Hyperparameters for the PPO algorithm used in Phase 2.
-################################################################################
-phase2_rl_settings:
-  gamma: 0.99           # Discount factor for future rewards
-  gae_lambda: 0.95      # Lambda for Generalized Advantage Estimation
-  lr: 0.0003            # Learning rate for the Adam optimizer
-  clip_epsilon: 0.2     # PPO clipping parameter
-  ppo_epochs: 10        # Number of epochs to train on the data per update
-  batch_size: 32        # Minibatch size for PPO updates
-  vf_coef: 0.5          # Value function loss coefficient
-  ent_coef: 0.01        # Entropy bonus coefficient (for exploration)
-  max_grad_norm: 0.5    # Maximum norm for gradient clipping
-  seed: 42              # Random seed for reproducibility 
+# Buyer Profile
+buyer_profile:
+  name: "Default Buyer"
+  budget: 500000
+  strategy: "balanced"
+  preferences:
+    location: "suburban"
+    bedrooms: 3
+    max_age: 20
+
+# Property Configuration
+property:
+  property_id: "PROP_001"
+  starting_price: 250000
+  description: "Beautiful 3-bedroom house in quiet neighborhood"
+  location: "123 Main St, Suburbia"
+  bedrooms: 3
+  bathrooms: 2
+  sqft: 1800
+  lot_size: 0.25
+  year_built: 2010
+  seller_notes: "Recent renovations include new kitchen and bathrooms"
+
+# Simulation Configuration
+simulation:
+  max_episodes: 1
+  log_level: "INFO"
+  save_results: true
+  results_dir: "results"
+
+# Visualization
+viz:
+  enabled: false
+  live_dashboard: false
+  port: 8080 

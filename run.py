@@ -1,117 +1,108 @@
 """
-Main Orchestration Script for the Multi-Agent Auction Simulator.
-
-This script drives a single auction episode using a multi-agent framework,
-leveraging LangGraph for orchestration. It loads the auction configuration,
-runs the simulation, and prints the final results.
+Main entry point for the hybrid LangGraph + MCP auction simulator.
 """
 
-# Load environment variables from .env file
-import os
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    print("✅ Environment variables loaded from .env file")
-except ImportError:
-    print("⚠️  python-dotenv not installed. Please install with: pip install python-dotenv")
-except Exception as e:
-    print(f"⚠️  Could not load .env file: {e}")
-
 import asyncio
-import argparse
-import logging
-import traceback
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
-import subprocess
-import webbrowser
-import socket
-import time
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any
 
 from config_utils import load_config
-from graph import run_auction_episode
-
-# Configure logging with improved formatting
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger(__name__)
-
-# Suppress verbose HTTP and other noisy loggers
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("litellm").setLevel(logging.CRITICAL)
-
-
-def parse_args():
-    """Parses command-line arguments."""
-    parser = argparse.ArgumentParser(description="Multi-Agent Auction Simulator")
-    parser.add_argument("--config", default="config.yaml", help="Path to configuration file.")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging for detailed round-by-round output.")
-    parser.add_argument("--live", action="store_true", help="Enable live dashboard visualization.")
-    args = parser.parse_args()
-    return args
+from loop_graph import run_episode
 
 
 async def main():
-    """Main entry point for the multi-agent simulation."""
-    args = parse_args()
+    """Main entry point for the auction simulator."""
+    print("🏠 Hybrid LangGraph + MCP Auction Simulator")
+    print("=" * 50)
     
-    console = Console()
-
-    # --- Set up Logging ---
-    # Configure root logger for console output
-    root_logger = logging.getLogger()
-    if args.verbose:
-        root_logger.setLevel(logging.INFO)
-    else:
-        root_logger.setLevel(logging.WARNING)
-        
-    console.print(Panel(Text("Multi-Agent Auction Simulator", justify="center", style="bold magenta"), title="Welcome"))
-    console.print("ℹ️  Run with --verbose for detailed, round-by-round logs.")
-    print("\n" + "="*80 + "\n🚀 Starting New Multi-Agent Simulation Run\n" + "="*80)
-
-    # --- Live Visualization Setup ---
-    if args.live:
-        # Clear the previous session's log file before starting
-        log_file = "live_auction.log"
-        if os.path.exists(log_file):
-            os.remove(log_file)
-            
-        print(f"🚀 Launching Streamlit dashboard... (log file: {log_file})")
-        # We just need to launch the dashboard, it will handle reading the log file.
-        subprocess.Popen(["streamlit", "run", "viz/live_dashboard.py"])
-        # Give it a moment to start before the simulation starts writing to the file
-        time.sleep(3)
-
-    # --- Run the Multi-Agent Simulation ---
     try:
-        console.print("[bold yellow]🚀 Running Multi-Agent Simulation...[/bold yellow]")
+        # Load configuration
+        config = load_config()
+        print(f"✅ Configuration loaded from config.yaml")
         
-        config = load_config(args.config)
-        final_states = await run_auction_episode(config, live=args.live)
+        # Set up results directory
+        results_dir = Path(config.get("simulation", {}).get("results_dir", "results"))
+        results_dir.mkdir(exist_ok=True)
         
-        print("\n" + "-"*35 + " ✅ Simulation Complete " + "-"*35)
+        # Run episode
+        print(f"🚀 Starting auction for property {config['property']['property_id']}")
+        print(f"💰 Starting price: ${config['property']['starting_price']:,.2f}")
+        print(f"👤 Buyer budget: ${config['buyer_profile']['budget']:,.2f}")
+        print()
         
-        for final_state in final_states:
-            final_price_str = f"${final_state.final_price:,.2f}" if final_state.final_price is not None else "N/A"
-            title = f"[bold]Auction Results for {final_state.property_id}[/bold]"
-
-            console.print(Panel(
-                f"[bold green]Winner:[/bold green] {final_state.winner or 'N/A'}\n"
-                f"[bold green]Final Price:[/bold green] {final_price_str}\n"
-                f"[bold green]Outcome:[/bold green] {'Auction successful.' if final_state.winner else final_state.failure_reason}",
-                title=title,
-                expand=False
-            ))
-
+        results = await run_episode(config)
+        
+        # Print results
+        print("📊 AUCTION RESULTS")
+        print("=" * 30)
+        
+        if results["success"]:
+            auction_state = results["auction_state"]
+            print(f"✅ Auction completed successfully")
+            print(f"🏆 Winner: {auction_state.winner or 'No winner'}")
+            print(f"💵 Final price: ${auction_state.final_price or auction_state.current_price:,.2f}")
+            print(f"🔄 Total rounds: {auction_state.round}")
+            print(f"📝 Failure reason: {auction_state.failure_reason or 'None'}")
+        else:
+            print(f"❌ Auction failed: {results.get('error', 'Unknown error')}")
+        
+        print(f"\n🔧 Tool usage:")
+        for tool, count in results["tool_usage"].items():
+            print(f"  {tool}: {count} times")
+        
+        print(f"\n📈 Events: {len(results['events'])} total")
+        
+        # Save results
+        if config.get("simulation", {}).get("save_results", True):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_file = results_dir / f"auction_results_{timestamp}.json"
+            
+            # Convert results to JSON-serializable format
+            json_results = {
+                "success": results["success"],
+                "auction_state": auction_state.dict() if results["success"] else None,
+                "tool_usage": results["tool_usage"],
+                "events": [e.dict() for e in results["events"]],
+                "context": results["context"],
+                "timestamp": timestamp,
+                "config": config
+            }
+            
+            if not results["success"]:
+                json_results["error"] = results["error"]
+            
+            with open(results_file, 'w') as f:
+                json.dump(json_results, f, indent=2, default=str)
+            
+            print(f"💾 Results saved to {results_file}")
+        
+        # Display conversation log
+        print(f"\n📝 Conversation Log:")
+        print("-" * 50)
+        for i, message in enumerate(results["context"], 1):
+            print(f"{i:2d}. {message}")
+        
+    except FileNotFoundError as e:
+        print(f"❌ Configuration error: {e}")
+        return 1
     except Exception as e:
-        logger.error(f"❌ An error occurred during the main execution: {e}")
-        logger.error(traceback.format_exc())
-        console.print(f"[bold red]❌ Simulation failed. Run with --verbose for detailed logs.[/bold red]")
+        print(f"❌ Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+    
+    return 0
 
 
 if __name__ == "__main__":
-    # Ensure the current directory is in the path to allow for module imports
-    import sys
-    sys.path.append(os.path.dirname(__file__))
+    # Set up environment
+    if not os.getenv("OPENAI_API_KEY"):
+        print("⚠️  Warning: OPENAI_API_KEY not found in environment")
+        print("   Set your OpenAI API key to use LLM agents")
+        print()
     
-    asyncio.run(main()) 
+    exit_code = asyncio.run(main())
+    exit(exit_code) 
